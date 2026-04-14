@@ -617,7 +617,7 @@
       ctx.fill();
       // Icon + text
       ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.fillText("🔍 " + zi, px, py);
+      ctx.fillText(zi, px, py);
       // Reset hint
       ctx.font = "9px Inter";
       ctx.fillStyle = "rgba(255,255,255,0.45)";

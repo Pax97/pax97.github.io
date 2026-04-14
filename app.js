@@ -107,7 +107,16 @@
     dragging: null, // 'cueBall' | 'objectBall' | null
     animTarget: null, // { x, y } or null
     hoverBall: null, // 'cueBall' | 'objectBall' | null
+    // ---- Pinch-to-Zoom + Pan ----
+    viewZoom: 1,
+    viewPanX: 0,
+    viewPanY: 0,
   };
+
+  // Pinch / pan gesture tracking (not part of serializable state)
+  let pinch = null;   // { startDist, startZoom, startPanX, startPanY, centerX, centerY }
+  let panTouch = null; // { x, y } last single-finger position for panning
+  let lastTapTime = 0; // for double-tap detection
 
   // ================================================================
   //  DOM REFERENCES
@@ -226,13 +235,18 @@
   }
 
   // ================================================================
-  //  COORDINATE TRANSFORMS
+  //  COORDINATE TRANSFORMS  (with zoom/pan support)
   // ================================================================
+  /** Table-units → canvas CSS-pixels (raw, before view transform) */
   function t2c(x, y) {
     return { x: tOx + x * tScale, y: tOy + y * tScale };
   }
+  /** Canvas CSS-pixels (from pointer) → table-units. Inverts the view transform first. */
   function c2t(cx, cy) {
-    return { x: (cx - tOx) / tScale, y: (cy - tOy) / tScale };
+    // Undo zoom+pan that renderTable applies
+    const rx = (cx - state.viewPanX) / state.viewZoom;
+    const ry = (cy - state.viewPanY) / state.viewZoom;
+    return { x: (rx - tOx) / tScale, y: (ry - tOy) / tScale };
   }
 
   // ================================================================
@@ -332,7 +346,13 @@
   // ================================================================
   function renderTable() {
     const ctx = ctxT;
-    ctx.clearRect(0, 0, tw, th);
+    // Clear in un-transformed space
+    ctx.clearRect(0, 0, tw * 2, th * 2);
+
+    // Apply zoom + pan view transform
+    ctx.save();
+    ctx.translate(state.viewPanX, state.viewPanY);
+    ctx.scale(state.viewZoom, state.viewZoom);
 
     const rw = RAIL * tScale; // rail width in px
     const sx = tOx,
@@ -576,6 +596,32 @@
       ctx.beginPath();
       ctx.arc(obp.x, obp.y, br + 3, 0, Math.PI * 2);
       ctx.stroke();
+    }
+
+    // End zoom+pan transform
+    ctx.restore();
+
+    // ---- Zoom indicator (drawn in un-transformed space) ----
+    if (state.viewZoom > 1.05) {
+      const zi = `${Math.round(state.viewZoom * 100)}%`;
+      ctx.save();
+      ctx.font = "bold 11px Inter";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      // Pill background
+      const m = ctx.measureText(zi);
+      const px = tw - 8, py = 8;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      roundRect(ctx, px - m.width - 12, py - 3, m.width + 18, 20, 6);
+      ctx.fill();
+      // Icon + text
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillText("🔍 " + zi, px, py);
+      // Reset hint
+      ctx.font = "9px Inter";
+      ctx.fillStyle = "rgba(255,255,255,0.45)";
+      ctx.fillText("double-tap reset", px, py + 18);
+      ctx.restore();
     }
   }
 
@@ -1391,14 +1437,19 @@
     return c2t(cx, cy);
   }
 
+  /** Check if a touch/click is on a ball. Hitbox enlarged on mobile & when zoomed out. */
   function hitTestBall(tablePos, ballPos) {
-    return dist(tablePos, ballPos) < BR * 2.5;
+    const isMobile = "ontouchstart" in window;
+    const hitMul = isMobile ? Math.max(3.5, 2.5 / state.viewZoom) : 2.5;
+    return dist(tablePos, ballPos) < BR * hitMul;
   }
 
   function hitTestPocket(tablePos) {
+    const isMobile = "ontouchstart" in window;
+    const hitMul = isMobile ? 3 : 2;
     for (let i = 0; i < POCKETS.length; i++) {
       const pr = POCKETS[i].type === "corner" ? PR_CORNER : PR_SIDE;
-      if (dist(tablePos, POCKETS[i]) < pr * 2) return i;
+      if (dist(tablePos, POCKETS[i]) < pr * hitMul) return i;
     }
     return -1;
   }
@@ -1458,26 +1509,89 @@
     state.dragging = null;
   });
 
-  // Touch events
+  // ================================================================
+  //  TOUCH EVENTS  (Pinch-to-Zoom + Pan + Ball Drag)
+  // ================================================================
+  function getTouchDist(t) {
+    const dx = t[0].clientX - t[1].clientX;
+    const dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function getTouchCenter(t, rect) {
+    return {
+      x: (t[0].clientX + t[1].clientX) / 2 - rect.left,
+      y: (t[0].clientY + t[1].clientY) / 2 - rect.top,
+    };
+  }
+
+  /** Clamp pan so the table stays visible */
+  function clampPan() {
+    const maxPanX = tw * (state.viewZoom - 1) * 0.6;
+    const maxPanY = th * (state.viewZoom - 1) * 0.6;
+    state.viewPanX = clamp(state.viewPanX, -maxPanX, maxPanX);
+    state.viewPanY = clamp(state.viewPanY, -maxPanY, maxPanY);
+  }
+
+  /** Reset zoom to 1× with smooth animation */
+  function resetZoom() {
+    state.viewZoom = 1;
+    state.viewPanX = 0;
+    state.viewPanY = 0;
+  }
+
   $tableCanvas.addEventListener(
     "touchstart",
     function (e) {
       e.preventDefault();
+      const touches = e.touches;
+
+      // ---- Two-finger: start pinch ----
+      if (touches.length === 2) {
+        state.dragging = null;
+        panTouch = null;
+        const rect = $tableCanvas.getBoundingClientRect();
+        pinch = {
+          startDist: getTouchDist(touches),
+          startZoom: state.viewZoom,
+          startPanX: state.viewPanX,
+          startPanY: state.viewPanY,
+          startCenter: getTouchCenter(touches, rect),
+        };
+        return;
+      }
+
+      // ---- Single-finger ----
+      pinch = null;
+
+      // Double-tap detection → reset zoom
+      const now = Date.now();
+      if (now - lastTapTime < 320) {
+        resetZoom();
+        lastTapTime = 0;
+        return;
+      }
+      lastTapTime = now;
+
       const tp = getTablePos(e);
 
+      // Pocket hit
       const pocketIdx = hitTestPocket(tp);
       if (pocketIdx >= 0) {
         state.selectedPocket = pocketIdx;
         return;
       }
 
+      // Ball hit → drag
       if (hitTestBall(tp, state.cueBall)) {
         state.dragging = "cueBall";
+        state.animTarget = null;
       } else if (hitTestBall(tp, state.objectBall)) {
         state.dragging = "objectBall";
+        state.animTarget = null;
+      } else if (state.viewZoom > 1.05) {
+        // No ball hit + zoomed in → pan mode
+        panTouch = { x: touches[0].clientX, y: touches[0].clientY };
       }
-
-      if (state.dragging) state.animTarget = null;
     },
     { passive: false },
   );
@@ -1486,17 +1600,61 @@
     "touchmove",
     function (e) {
       e.preventDefault();
-      if (!state.dragging) return;
-      const tp = getTablePos(e);
-      const ball =
-        state.dragging === "cueBall" ? state.cueBall : state.objectBall;
-      ball.x = clamp(tp.x, BR, TW - BR);
-      ball.y = clamp(tp.y, BR, TH - BR);
+      const touches = e.touches;
+
+      // ---- Pinch-to-zoom ----
+      if (touches.length === 2 && pinch) {
+        const rect = $tableCanvas.getBoundingClientRect();
+        const newDist = getTouchDist(touches);
+        const newCenter = getTouchCenter(touches, rect);
+
+        // Zoom ratio
+        const zoomRatio = newDist / pinch.startDist;
+        const newZoom = clamp(pinch.startZoom * zoomRatio, 1, 5);
+
+        // Pan: keep pinch center stable
+        const dx = newCenter.x - pinch.startCenter.x;
+        const dy = newCenter.y - pinch.startCenter.y;
+        const cx = pinch.startCenter.x;
+        const cy = pinch.startCenter.y;
+
+        state.viewZoom = newZoom;
+        state.viewPanX = pinch.startPanX + dx +
+          (cx - pinch.startPanX) * (1 - newZoom / pinch.startZoom);
+        state.viewPanY = pinch.startPanY + dy +
+          (cy - pinch.startPanY) * (1 - newZoom / pinch.startZoom);
+        clampPan();
+        return;
+      }
+
+      // ---- Single-finger pan (when zoomed in) ----
+      if (panTouch && touches.length === 1) {
+        const dx = touches[0].clientX - panTouch.x;
+        const dy = touches[0].clientY - panTouch.y;
+        state.viewPanX += dx;
+        state.viewPanY += dy;
+        clampPan();
+        panTouch = { x: touches[0].clientX, y: touches[0].clientY };
+        return;
+      }
+
+      // ---- Ball drag ----
+      if (state.dragging && touches.length === 1) {
+        const tp = getTablePos(e);
+        const ball =
+          state.dragging === "cueBall" ? state.cueBall : state.objectBall;
+        ball.x = clamp(tp.x, BR, TW - BR);
+        ball.y = clamp(tp.y, BR, TH - BR);
+      }
     },
     { passive: false },
   );
 
-  window.addEventListener("touchend", function () {
+  window.addEventListener("touchend", function (e) {
+    if (e.touches.length === 0) {
+      pinch = null;
+      panTouch = null;
+    }
     state.dragging = null;
   });
 

@@ -16,22 +16,22 @@
   // ================================================================
   // Playing surface: 100" × 50" (WPA regulation, nose-to-nose)
   const TW = 100; // table playing surface width (inches)
-  const TH = 50;  // table playing surface height
+  const TH = 50; // table playing surface height
   // Aramith Tournament Black ball: 57.2 mm = 2.25" diameter → 1.125" radius
   const BR = 1.125; // ball radius
   // Rasson OX-style rail width: ~7" from cushion nose to outer edge
   const RAIL = 7;
   // WPA pocket mouth dimensions (from cushion nose tip to tip)
-  const PR_CORNER = 2.25;  // corner pocket radius ≈ 4.5"/2
-  const PR_SIDE   = 2.5;   // side pocket radius   ≈ 5.0"/2
+  const PR_CORNER = 2.25; // corner pocket radius ≈ 4.5"/2
+  const PR_SIDE = 2.5; // side pocket radius   ≈ 5.0"/2
 
   const POCKETS = [
-    { x: 0,      y: 0,  name: "Trái trên",  type: "corner" },
-    { x: TW / 2, y: 0,  name: "Giữa trên",  type: "side"   },
-    { x: TW,     y: 0,  name: "Phải trên",  type: "corner" },
-    { x: 0,      y: TH, name: "Trái dưới",  type: "corner" },
-    { x: TW / 2, y: TH, name: "Giữa dưới",  type: "side"   },
-    { x: TW,     y: TH, name: "Phải dưới",  type: "corner" },
+    { x: 0, y: 0, name: "Trái trên", type: "corner" },
+    { x: TW / 2, y: 0, name: "Giữa trên", type: "side" },
+    { x: TW, y: 0, name: "Phải trên", type: "corner" },
+    { x: 0, y: TH, name: "Trái dưới", type: "corner" },
+    { x: TW / 2, y: TH, name: "Giữa dưới", type: "side" },
+    { x: TW, y: TH, name: "Phải dưới", type: "corner" },
   ];
 
   // Diamond markers on rails (3 between each pair of adjacent pockets)
@@ -52,27 +52,27 @@
   // ---- Rasson + Simonis Tournament Blue color palette ----
   const COLORS = {
     // Simonis 860 Tournament Blue cloth
-    felt:      "#1e5a9e",
+    felt: "#1e5a9e",
     feltLight: "#2468b0",
-    feltDark:  "#164882",
+    feltDark: "#164882",
     // Rasson dark walnut / mahogany rails
-    rail:      "#3a2518",
+    rail: "#3a2518",
     railLight: "#5c3a28",
-    railDark:  "#1e110a",
-    railAccent: "#7a5540",  // inlay / chamfer highlight
+    railDark: "#1e110a",
+    railAccent: "#7a5540", // inlay / chamfer highlight
     // Visual aid lines
-    aimLine:        "#00d4ff",
-    objectPath:     "#ffd700",
+    aimLine: "#00d4ff",
+    objectPath: "#ffd700",
     deflectionPath: "#ff4da6",
-    ghostBall:       "rgba(255,255,255,0.25)",
+    ghostBall: "rgba(255,255,255,0.25)",
     ghostBallStroke: "rgba(255,255,255,0.55)",
-    cutAngle:       "#ff8c00",
-    contactPoint:   "#ff3333",
+    cutAngle: "#ff8c00",
+    contactPoint: "#ff3333",
     // Aramith Tournament Black balls
-    cueBall:    "#fffff5",   // ivory white
-    cueShadow:  "#c8c8b8",
-    objectBall: "#ffcc00",   // #1 ball – solid yellow
-    objShadow:  "#b38f00",
+    cueBall: "#fffff5", // ivory white
+    cueShadow: "#c8c8b8",
+    objectBall: "#ffcc00", // #1 ball – solid yellow
+    objShadow: "#b38f00",
     pocketSelected: "#ffd700",
     // Pocket interior
     pocketInner: "#000000",
@@ -100,7 +100,7 @@
       deflectionPath: true,
       ghostBall: true,
       cutAngle: true,
-      contactPoint: true,
+      contactPoint: false,
       diamondGrid: true,
     },
     tipHeight: 0, // -1 (draw/low) to 0 (stun/center) to +1 (follow/high)
@@ -114,7 +114,7 @@
   };
 
   // Pinch / pan gesture tracking (not part of serializable state)
-  let pinch = null;   // { startDist, startZoom, startPanX, startPanY, centerX, centerY }
+  let pinch = null; // { startDist, startZoom, startPanX, startPanY, centerX, centerY }
   let panTouch = null; // { x, y } last single-finger position for panning
   let lastTapTime = 0; // for double-tap detection
 
@@ -363,13 +363,13 @@
     // ---- Outer rail (Rasson dark walnut / mahogany wood) ----
     // Multi-stop gradient to emulate polished dark wood grain
     const railGrad = ctx.createLinearGradient(0, 0, 0, th);
-    railGrad.addColorStop(0,   COLORS.railAccent);
+    railGrad.addColorStop(0, COLORS.railAccent);
     railGrad.addColorStop(0.08, COLORS.railLight);
-    railGrad.addColorStop(0.2,  COLORS.rail);
-    railGrad.addColorStop(0.5,  COLORS.railDark);
-    railGrad.addColorStop(0.8,  COLORS.rail);
+    railGrad.addColorStop(0.2, COLORS.rail);
+    railGrad.addColorStop(0.5, COLORS.railDark);
+    railGrad.addColorStop(0.8, COLORS.rail);
     railGrad.addColorStop(0.92, COLORS.railLight);
-    railGrad.addColorStop(1,    COLORS.railAccent);
+    railGrad.addColorStop(1, COLORS.railAccent);
     ctx.fillStyle = railGrad;
     roundRect(ctx, 0, 0, tw, th, 10);
     ctx.fill();
@@ -610,7 +610,8 @@
       ctx.textBaseline = "top";
       // Pill background
       const m = ctx.measureText(zi);
-      const px = tw - 8, py = 8;
+      const px = tw - 8,
+        py = 8;
       ctx.fillStyle = "rgba(0,0,0,0.55)";
       roundRect(ctx, px - m.width - 12, py - 3, m.width + 18, 20, 6);
       ctx.fill();
@@ -691,14 +692,20 @@
     if (state.show.deflectionPath && g.cutAngleDeg > 1) {
       // Compute deflection ray length to reach the nearest rail
       const deflRailPt = rayToRail(
-        g.ghostBall.x, g.ghostBall.y, g.deflDir.x, g.deflDir.y,
+        g.ghostBall.x,
+        g.ghostBall.y,
+        g.deflDir.x,
+        g.deflDir.y,
       );
       const deflEndP = t2c(deflRailPt.x, deflRailPt.y);
 
       // Tangent/stun reference line (dimmed, always 90°)
       if (Math.abs(state.tipHeight) > 0.05) {
         const stunRailPt = rayToRail(
-          g.ghostBall.x, g.ghostBall.y, g.stunDir.x, g.stunDir.y,
+          g.ghostBall.x,
+          g.ghostBall.y,
+          g.stunDir.x,
+          g.stunDir.y,
         );
         const stunEndP = t2c(stunRailPt.x, stunRailPt.y);
         ctx.save();
@@ -768,13 +775,13 @@
       ctx.setLineDash([]);
 
       // Label
-      drawLabel(ctx, "Ghost", gbp.x, gbp.y - br - 6, {
-        font: `bold ${Math.max(9, br * 0.75)}px Inter`,
-        color: "#ffffff",
-        alpha: 0.8,
-        align: "center",
-        baseline: "bottom",
-      });
+      // drawLabel(ctx, "Ghost", gbp.x, gbp.y - br - 6, {
+      //   font: `bold ${Math.max(9, br * 0.75)}px Inter`,
+      //   color: "#ffffff",
+      //   alpha: 0.8,
+      //   align: "center",
+      //   baseline: "bottom",
+      // });
       ctx.restore();
     }
 
@@ -852,7 +859,8 @@
     const metrics = ctx.measureText(text);
     const textW = metrics.width;
     const textH = parseInt(opts.font) || 10;
-    const padX = 5, padY = 3;
+    const padX = 5,
+      padY = 3;
 
     // Compute pill position based on alignment
     let pillX = x - padX;
@@ -883,7 +891,6 @@
     ctx.fillText(text, x, y);
     ctx.restore();
   }
-
 
   /** Draw a ball with 3D-ish shading (generic) */
   function drawBall(ctx, x, y, r, mainColor, shadowColor, label) {
@@ -953,8 +960,12 @@
 
     // Main body — ivory gradient
     const g = ctx.createRadialGradient(
-      x - r * 0.3, y - r * 0.35, r * 0.05,
-      x, y, r,
+      x - r * 0.3,
+      y - r * 0.35,
+      r * 0.05,
+      x,
+      y,
+      r,
     );
     g.addColorStop(0, "#ffffff");
     g.addColorStop(0.3, COLORS.cueBall);
@@ -970,8 +981,12 @@
 
     // Specular highlight
     const hl = ctx.createRadialGradient(
-      x - r * 0.28, y - r * 0.28, 0,
-      x - r * 0.28, y - r * 0.28, r * 0.5,
+      x - r * 0.28,
+      y - r * 0.28,
+      0,
+      x - r * 0.28,
+      y - r * 0.28,
+      r * 0.5,
     );
     hl.addColorStop(0, "rgba(255,255,255,0.85)");
     hl.addColorStop(1, "rgba(255,255,255,0)");
@@ -988,7 +1003,13 @@
       for (let i = 0; i < 6; i++) {
         const a = (i * Math.PI * 2) / 6 - Math.PI / 2;
         ctx.beginPath();
-        ctx.arc(x + Math.cos(a) * ring, y + Math.sin(a) * ring, dotR, 0, Math.PI * 2);
+        ctx.arc(
+          x + Math.cos(a) * ring,
+          y + Math.sin(a) * ring,
+          dotR,
+          0,
+          Math.PI * 2,
+        );
         ctx.fill();
       }
     }
@@ -1007,8 +1028,12 @@
 
     // Main body — rich yellow
     const g = ctx.createRadialGradient(
-      x - r * 0.3, y - r * 0.35, r * 0.05,
-      x, y, r,
+      x - r * 0.3,
+      y - r * 0.35,
+      r * 0.05,
+      x,
+      y,
+      r,
     );
     g.addColorStop(0, "#fff7aa");
     g.addColorStop(0.2, "#ffe033");
@@ -1041,8 +1066,12 @@
 
     // Specular highlight
     const hl = ctx.createRadialGradient(
-      x - r * 0.28, y - r * 0.28, 0,
-      x - r * 0.28, y - r * 0.28, r * 0.5,
+      x - r * 0.28,
+      y - r * 0.28,
+      0,
+      x - r * 0.28,
+      y - r * 0.28,
+      r * 0.5,
     );
     hl.addColorStop(0, "rgba(255,255,255,0.7)");
     hl.addColorStop(1, "rgba(255,255,255,0)");
@@ -1342,7 +1371,13 @@
         for (let si = 0; si < 6; si++) {
           const sa = (si * Math.PI * 2) / 6 - Math.PI / 2;
           ctx.beginPath();
-          ctx.arc(cbCx + Math.cos(sa) * sRing, cbCy + Math.sin(sa) * sRing, sdR, 0, Math.PI * 2);
+          ctx.arc(
+            cbCx + Math.cos(sa) * sRing,
+            cbCy + Math.sin(sa) * sRing,
+            sdR,
+            0,
+            Math.PI * 2,
+          );
           ctx.fill();
         }
       }
@@ -1619,9 +1654,13 @@
         const cy = pinch.startCenter.y;
 
         state.viewZoom = newZoom;
-        state.viewPanX = pinch.startPanX + dx +
+        state.viewPanX =
+          pinch.startPanX +
+          dx +
           (cx - pinch.startPanX) * (1 - newZoom / pinch.startZoom);
-        state.viewPanY = pinch.startPanY + dy +
+        state.viewPanY =
+          pinch.startPanY +
+          dy +
           (cy - pinch.startPanY) * (1 - newZoom / pinch.startZoom);
         clampPan();
         return;

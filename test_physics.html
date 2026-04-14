@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Physics Unit Tests — Fractional Aiming</title></head>
+<body style="background:#0a0e18;color:#e0e6f0;font-family:monospace;padding:20px;">
+<pre id="output"></pre>
+<script>
+const log = [];
+let totalTests = 0;
+function assert(name, cond, msg) {
+    totalTests++;
+    if (cond) {
+        log.push(`✅ PASS: ${name}`);
+    } else {
+        log.push(`❌ FAIL: ${name} — ${msg}`);
+    }
+}
+function approx(a, b, eps) { return Math.abs(a - b) < (eps || 0.01); }
+function approxV(a, b, eps) { return approx(a.x, b.x, eps) && approx(a.y, b.y, eps); }
+
+// ====== Constants (mirrored from app.js) ======
+const BR = 1.125;
+const TW = 100, TH = 50;
+
+// ====== Utility functions (mirrored from app.js) ======
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function normalize(v) {
+    const d = Math.sqrt(v.x * v.x + v.y * v.y);
+    return d < 1e-9 ? {x:0,y:0} : {x: v.x/d, y: v.y/d};
+}
+
+function rayToRail(ox, oy, dx, dy) {
+    let tMin = Infinity;
+    if (Math.abs(dx) > 1e-9) {
+        const t1 = (0 - ox) / dx;
+        if (t1 > 0.01 && t1 < tMin) tMin = t1;
+        const t2 = (TW - ox) / dx;
+        if (t2 > 0.01 && t2 < tMin) tMin = t2;
+    }
+    if (Math.abs(dy) > 1e-9) {
+        const t3 = (0 - oy) / dy;
+        if (t3 > 0.01 && t3 < tMin) tMin = t3;
+        const t4 = (TH - oy) / dy;
+        if (t4 > 0.01 && t4 < tMin) tMin = t4;
+    }
+    if (!isFinite(tMin)) tMin = 50;
+    return {
+        x: clamp(ox + dx * tMin, 0, TW),
+        y: clamp(oy + dy * tMin, 0, TH),
+    };
+}
+
+// Full calcGeometry re-implementation (with tipHeight parameter)
+function calcGeometry(cb, ob, pocket, tipHeight) {
+    tipHeight = tipHeight || 0;
+
+    const dpx = pocket.x - ob.x, dpy = pocket.y - ob.y;
+    const dpLen = Math.sqrt(dpx*dpx + dpy*dpy);
+    if (dpLen < 0.5) return null;
+    const dp = { x: dpx/dpLen, y: dpy/dpLen };
+
+    const gb = { x: ob.x - dp.x * 2 * BR, y: ob.y - dp.y * 2 * BR };
+
+    const dax = gb.x - cb.x, day = gb.y - cb.y;
+    const daLen = Math.sqrt(dax*dax + day*day);
+    if (daLen < 0.5) return null;
+    const da = { x: dax/daLen, y: day/daLen };
+
+    const dot = da.x * dp.x + da.y * dp.y;
+    const cutAngle = Math.acos(clamp(dot, -1, 1));
+    const cutAngleDeg = cutAngle * 180 / Math.PI;
+    const fraction = clamp(1 - Math.sin(cutAngle), 0, 1);
+    const cross = da.x * dp.y - da.y * dp.x;
+
+    // Stun direction (tangent line)
+    const aimDotPocket = da.x * dp.x + da.y * dp.y;
+    const stunRaw = { x: da.x - aimDotPocket * dp.x, y: da.y - aimDotPocket * dp.y };
+    const stunDir = normalize(stunRaw);
+
+    // Tip-height adjusted deflection
+    const phi = Math.PI / 2 - tipHeight * (Math.PI / 2 - cutAngle);
+    const deflDir = {
+        x: Math.cos(phi) * dp.x + Math.sin(phi) * stunDir.x,
+        y: Math.cos(phi) * dp.y + Math.sin(phi) * stunDir.y,
+    };
+    const deflAngleDeg = phi * 180 / Math.PI;
+
+    const cp = { x: ob.x - dp.x * BR, y: ob.y - dp.y * BR };
+
+    return { ghostBall: gb, cutAngle, cutAngleDeg, fraction, cross,
+             stunDir, deflDir, deflAngleDeg,
+             contactPoint: cp, dirPocket: dp, dirAim: da, aimDist: daLen };
+}
+
+// ============================================================
+//               SECTION 1: CORE GEOMETRY (from v1)
+// ============================================================
+log.push('═══════════════════════════════');
+log.push(' SECTION 1: CORE GEOMETRY');
+log.push('═══════════════════════════════');
+
+// TEST 1: Full ball hit (0° cut)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Full ball: cut angle ≈ 0°', approx(g.cutAngleDeg, 0, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('Full ball: fraction ≈ 1.0', approx(g.fraction, 1.0, 0.02), `got ${g.fraction.toFixed(4)}`);
+    assert('Full ball: ghost ball x', approx(g.ghostBall.x, 50 - 2*BR, 0.01), `got ${g.ghostBall.x}`);
+    assert('Full ball: ghost ball y = OB y', approx(g.ghostBall.y, 25, 0.01), `got ${g.ghostBall.y}`);
+}
+
+// TEST 2: Half ball hit (30° cut)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 };
+    const dist = 30, theta = 30 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Half ball: cut angle ≈ 30°', approx(g.cutAngleDeg, 30, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('Half ball: fraction ≈ 0.5', approx(g.fraction, 0.5, 0.02), `got ${g.fraction.toFixed(4)}`);
+}
+
+// TEST 3: 3/4 ball hit
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30, theta = Math.asin(0.25);
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('3/4 ball: cut angle ≈ 14.48°', approx(g.cutAngleDeg, 14.48, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('3/4 ball: fraction ≈ 0.75', approx(g.fraction, 0.75, 0.02), `got ${g.fraction.toFixed(4)}`);
+}
+
+// TEST 4: 1/4 ball hit
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30, theta = Math.asin(0.75);
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('1/4 ball: cut angle ≈ 48.59°', approx(g.cutAngleDeg, 48.59, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('1/4 ball: fraction ≈ 0.25', approx(g.fraction, 0.25, 0.02), `got ${g.fraction.toFixed(4)}`);
+}
+
+// TEST 5: 1/8 ball hit
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30, theta = Math.asin(0.875);
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('1/8 ball: cut angle ≈ 61.04°', approx(g.cutAngleDeg, 61.04, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('1/8 ball: fraction ≈ 0.125', approx(g.fraction, 0.125, 0.02), `got ${g.fraction.toFixed(4)}`);
+}
+
+// TEST 6: Ghost ball position with angled pocket
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 0 };
+    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
+    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
+    const dp = {x:dpx/dpLen,y:dpy/dpLen};
+    const expectedGB = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
+    const g = calcGeometry({x:20,y:30}, ob, pocket);
+    assert('Angled pocket: ghost ball x', approx(g.ghostBall.x, expectedGB.x, 0.01), `expected ${expectedGB.x.toFixed(3)}, got ${g.ghostBall.x.toFixed(3)}`);
+    assert('Angled pocket: ghost ball y', approx(g.ghostBall.y, expectedGB.y, 0.01), `expected ${expectedGB.y.toFixed(3)}, got ${g.ghostBall.y.toFixed(3)}`);
+}
+
+// TEST 7: Contact point
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Contact point x', approx(g.contactPoint.x, 50 - BR, 0.01), `expected ${50-BR}, got ${g.contactPoint.x}`);
+    assert('Contact point y', approx(g.contactPoint.y, 25, 0.01), `expected 25, got ${g.contactPoint.y}`);
+    const dGC = Math.sqrt((g.contactPoint.x-g.ghostBall.x)**2+(g.contactPoint.y-g.ghostBall.y)**2);
+    const dOC = Math.sqrt((g.contactPoint.x-ob.x)**2+(g.contactPoint.y-ob.y)**2);
+    assert('Contact is BR from ghost', approx(dGC, BR, 0.01), `got ${dGC.toFixed(4)}`);
+    assert('Contact is BR from OB', approx(dOC, BR, 0.01), `got ${dOC.toFixed(4)}`);
+}
+
+// TEST 8: Fraction formula identity
+{
+    [1, 0.75, 0.5, 0.25, 0.125].forEach(f => {
+        const theta = Math.asin(1 - f);
+        const recovered = 1 - Math.sin(theta);
+        assert(`Fraction identity f=${f}`, approx(recovered, f, 1e-10), `recovered ${recovered}`);
+    });
+}
+
+// ============================================================
+//       SECTION 2: STUN DIRECTION (tangent line)
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 2: STUN DIRECTION');
+log.push('═══════════════════════════════');
+
+// TEST: stunDir ⊥ dirPocket (always)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    const dotSP = g.stunDir.x * g.dirPocket.x + g.stunDir.y * g.dirPocket.y;
+    assert('stunDir ⊥ dirPocket', approx(dotSP, 0, 0.001), `dot = ${dotSP.toFixed(6)}`);
+}
+
+// TEST: stunDir is unit vector
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 45 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    const len = Math.sqrt(g.stunDir.x**2 + g.stunDir.y**2);
+    assert('stunDir is unit vector', approx(len, 1, 0.001), `|stunDir| = ${len.toFixed(6)}`);
+}
+
+// TEST: stunDir = deflDir when tipHeight = 0
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket, 0);
+    assert('tipHeight=0: deflDir ≈ stunDir', approxV(g.deflDir, g.stunDir, 0.001),
+        `deflDir=(${g.deflDir.x.toFixed(4)},${g.deflDir.y.toFixed(4)}) stunDir=(${g.stunDir.x.toFixed(4)},${g.stunDir.y.toFixed(4)})`);
+    assert('tipHeight=0: deflAngle = 90°', approx(g.deflAngleDeg, 90, 0.1), `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: stunDir ⊥ dirPocket (diagonal pocket)
+{
+    const ob = { x: 60, y: 30 }, pocket = { x: 100, y: 0 };
+    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
+    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
+    const dp = {x:dpx/dpLen,y:dpy/dpLen};
+    const gb = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
+    const theta = 30 * Math.PI / 180;
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    const aimDir = { x: dp.x*cosT - dp.y*sinT, y: dp.x*sinT + dp.y*cosT };
+    const cb = { x: gb.x - aimDir.x*25, y: gb.y - aimDir.y*25 };
+    const g = calcGeometry(cb, ob, pocket);
+    const dotSP = g.stunDir.x * g.dirPocket.x + g.stunDir.y * g.dirPocket.y;
+    assert('Diagonal: stunDir ⊥ pocket', approx(dotSP, 0, 0.001), `dot = ${dotSP.toFixed(6)}`);
+}
+
+// ============================================================
+//    SECTION 3: TIP-HEIGHT DEFLECTION (follow/draw)
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 3: TIP-HEIGHT DEFLECTION');
+log.push('═══════════════════════════════');
+
+// Common setup for tip tests
+function setupTipTest(cutDeg) {
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = cutDeg * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    return { cb, ob, pocket };
+}
+
+// TEST: Follow (tipHeight=1) → deflAngle ≈ cutAngle
+{
+    const s = setupTipTest(30);
+    const g = calcGeometry(s.cb, s.ob, s.pocket, 1);
+    assert('Follow max: deflAngle ≈ cutAngle (30°)', approx(g.deflAngleDeg, 30, 0.5),
+        `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: Draw (tipHeight=-1) → deflAngle ≈ 180° - cutAngle
+{
+    const s = setupTipTest(30);
+    const g = calcGeometry(s.cb, s.ob, s.pocket, -1);
+    assert('Draw max: deflAngle ≈ 150° (= 180-30)', approx(g.deflAngleDeg, 150, 0.5),
+        `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: Half follow (tipHeight=0.5) → deflAngle ≈ 60°
+{
+    const s = setupTipTest(30);
+    const g = calcGeometry(s.cb, s.ob, s.pocket, 0.5);
+    // φ = 90 - 0.5*(90-30) = 90 - 30 = 60°
+    assert('Half follow: deflAngle ≈ 60°', approx(g.deflAngleDeg, 60, 0.5),
+        `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: Half draw (tipHeight=-0.5) → deflAngle ≈ 120°
+{
+    const s = setupTipTest(30);
+    const g = calcGeometry(s.cb, s.ob, s.pocket, -0.5);
+    // φ = 90 - (-0.5)*(90-30) = 90 + 30 = 120°
+    assert('Half draw: deflAngle ≈ 120°', approx(g.deflAngleDeg, 120, 0.5),
+        `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: deflDir is unit vector for all tip heights
+{
+    [-1, -0.5, 0, 0.5, 1].forEach(tip => {
+        const s = setupTipTest(30);
+        const g = calcGeometry(s.cb, s.ob, s.pocket, tip);
+        const len = Math.sqrt(g.deflDir.x**2 + g.deflDir.y**2);
+        assert(`deflDir unit at tip=${tip}`, approx(len, 1, 0.01), `|deflDir| = ${len.toFixed(6)}`);
+    });
+}
+
+// TEST: Follow (tipHeight=1) for straight shot → deflAngle = 0° (follow through)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
+    const g = calcGeometry(cb, ob, pocket, 1);
+    // cutAngle ≈ 0°, φ = 90 - 1*(90-0) = 0°
+    assert('Follow on straight shot: deflAngle ≈ 0°', approx(g.deflAngleDeg, 0, 1),
+        `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: Draw (tipHeight=-1) for straight shot → deflAngle = 180° (straight back)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
+    const g = calcGeometry(cb, ob, pocket, -1);
+    // cutAngle ≈ 0°, φ = 90 + 90 = 180°
+    assert('Draw on straight shot: deflAngle ≈ 180°', approx(g.deflAngleDeg, 180, 1),
+        `got ${g.deflAngleDeg.toFixed(2)}°`);
+}
+
+// TEST: Phi formula consistency — φ = 90 − tip * (90 − θ)
+{
+    const angles = [0, 15, 30, 45, 60];
+    const tips = [-1, -0.5, 0, 0.5, 1];
+    let phiOk = true;
+    angles.forEach(aDeg => {
+        tips.forEach(tip => {
+            const expected = 90 - tip * (90 - aDeg);
+            const s = setupTipTest(aDeg);
+            const g = calcGeometry(s.cb, s.ob, s.pocket, tip);
+            if (!approx(g.deflAngleDeg, expected, 1)) {
+                phiOk = false;
+                log.push(`  φ mismatch: θ=${aDeg}°, tip=${tip}, expected=${expected.toFixed(1)}°, got=${g.deflAngleDeg.toFixed(1)}°`);
+            }
+        });
+    });
+    assert('Phi formula: φ = 90° − tip × (90° − θ) for all combos', phiOk, 'see details above');
+}
+
+// ============================================================
+//           SECTION 4: rayToRail
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 4: RAY TO RAIL');
+log.push('═══════════════════════════════');
+
+// TEST: Ray going right → hits right rail
+{
+    const pt = rayToRail(50, 25, 1, 0);
+    assert('Ray right: hits x=100', approx(pt.x, 100, 0.01), `x = ${pt.x}`);
+    assert('Ray right: y unchanged', approx(pt.y, 25, 0.01), `y = ${pt.y}`);
+}
+
+// TEST: Ray going left → hits left rail
+{
+    const pt = rayToRail(50, 25, -1, 0);
+    assert('Ray left: hits x=0', approx(pt.x, 0, 0.01), `x = ${pt.x}`);
+    assert('Ray left: y unchanged', approx(pt.y, 25, 0.01), `y = ${pt.y}`);
+}
+
+// TEST: Ray going up → hits top rail
+{
+    const pt = rayToRail(50, 25, 0, -1);
+    assert('Ray up: hits y=0', approx(pt.y, 0, 0.01), `y = ${pt.y}`);
+    assert('Ray up: x unchanged', approx(pt.x, 50, 0.01), `x = ${pt.x}`);
+}
+
+// TEST: Ray going down → hits bottom rail
+{
+    const pt = rayToRail(50, 25, 0, 1);
+    assert('Ray down: hits y=50', approx(pt.y, 50, 0.01), `y = ${pt.y}`);
+    assert('Ray down: x unchanged', approx(pt.x, 50, 0.01), `x = ${pt.x}`);
+}
+
+// TEST: Diagonal ray (45°) from center → hits corner
+{
+    const d = Math.SQRT1_2;
+    const pt = rayToRail(50, 25, d, d);
+    // Going right+down from center. Right rail at t=(100-50)/d=70.7, bottom at t=(50-25)/d=35.4
+    // Hits bottom first at t≈35.4: x = 50 + d*35.4 ≈ 75, y = 50
+    assert('Diagonal: hits bottom rail first', approx(pt.y, 50, 0.01), `y = ${pt.y.toFixed(2)}`);
+    assert('Diagonal: x ≈ 75', approx(pt.x, 75, 0.01), `x = ${pt.x.toFixed(2)}`);
+}
+
+// TEST: Ray from near corner
+{
+    const pt = rayToRail(5, 5, -1, -1);
+    // Going upper-left, dist to x=0 is 5/1=5, dist to y=0 is 5/1=5 → hits both at same time
+    assert('Corner ray: hits rail at (0,0)', approx(pt.x, 0, 0.1) && approx(pt.y, 0, 0.1),
+        `got (${pt.x.toFixed(2)}, ${pt.y.toFixed(2)})`);
+}
+
+// TEST: Ray from edge going further into boundary would have no valid t
+// Start at the left rail going right — should hit right rail
+{
+    const pt = rayToRail(0.5, 25, 1, 0);
+    assert('From near-edge right: hits x=100', approx(pt.x, 100, 0.01), `x = ${pt.x}`);
+}
+
+// TEST: Steep diagonal
+{
+    const pt = rayToRail(50, 25, 0.1, -1);
+    // y goes up fast: t = 25/1 = 25, x = 50 + 0.1*25 = 52.5
+    assert('Steep up: hits top rail', approx(pt.y, 0, 0.01), `y = ${pt.y.toFixed(2)}`);
+    assert('Steep up: x ≈ 52.5', approx(pt.x, 52.5, 0.1), `x = ${pt.x.toFixed(2)}`);
+}
+
+// ============================================================
+//    SECTION 5: DIAGONAL / EDGE CASES
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 5: EDGE CASES');
+log.push('═══════════════════════════════');
+
+// TEST: Diagonal pocket with half-ball cut
+{
+    const ob = { x: 60, y: 30 }, pocket = { x: 100, y: 0 };
+    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
+    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
+    const dp = {x:dpx/dpLen,y:dpy/dpLen};
+    const gb = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
+    const theta = 30 * Math.PI / 180;
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    const aimDir = { x: dp.x*cosT - dp.y*sinT, y: dp.x*sinT + dp.y*cosT };
+    const cb = { x: gb.x - aimDir.x*25, y: gb.y - aimDir.y*25 };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Diagonal: cut ≈ 30°', approx(g.cutAngleDeg, 30, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('Diagonal: fraction ≈ 0.5', approx(g.fraction, 0.5, 0.02), `got ${g.fraction.toFixed(4)}`);
+    const dotSP = g.stunDir.x * g.dirPocket.x + g.stunDir.y * g.dirPocket.y;
+    assert('Diagonal: stun ⊥ pocket', approx(dotSP, 0, 0.001), `dot = ${dotSP.toFixed(6)}`);
+}
+
+// TEST: Very thin cut (near miss)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 85 * Math.PI / 180; // very thin
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Thin cut: angle ≈ 85°', approx(g.cutAngleDeg, 85, 1), `got ${g.cutAngleDeg.toFixed(2)}°`);
+    assert('Thin cut: fraction near 0', g.fraction < 0.1, `got ${g.fraction.toFixed(4)}`);
+}
+
+// TEST: Tip deflection on diagonal pocket
+{
+    const ob = { x: 60, y: 30 }, pocket = { x: 100, y: 0 };
+    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
+    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
+    const dp = {x:dpx/dpLen,y:dpy/dpLen};
+    const gb = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
+    const theta = 30 * Math.PI / 180;
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    const aimDir = { x: dp.x*cosT - dp.y*sinT, y: dp.x*sinT + dp.y*cosT };
+    const cb = { x: gb.x - aimDir.x*25, y: gb.y - aimDir.y*25 };
+    
+    const gFollow = calcGeometry(cb, ob, pocket, 1);
+    const gDraw = calcGeometry(cb, ob, pocket, -1);
+    assert('Diagonal follow: deflAngle ≈ 30°', approx(gFollow.deflAngleDeg, 30, 1),
+        `got ${gFollow.deflAngleDeg.toFixed(2)}°`);
+    assert('Diagonal draw: deflAngle ≈ 150°', approx(gDraw.deflAngleDeg, 150, 1),
+        `got ${gDraw.deflAngleDeg.toFixed(2)}°`);
+}
+
+// ============================================================
+//                      OUTPUT
+// ============================================================
+const passed = log.filter(l => l.startsWith('✅')).length;
+const failed = totalTests - passed;
+
+log.push('');
+log.push('═══════════════════════════════');
+log.push(`Total: ${totalTests}  |  Passed: ${passed}  |  Failed: ${failed}`);
+if (failed === 0) log.push('🎉 ALL TESTS PASSED!');
+else log.push('⚠️  SOME TESTS FAILED');
+
+document.getElementById('output').textContent = log.join('\n');
+</script>
+</body>
+</html>

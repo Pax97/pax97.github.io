@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Trực quan hoá phương pháp Fractional Aiming (Ngắm theo tỷ lệ) trong Billiard. Công cụ học tập tương tác."
+    />
+    <title>Fractional Aiming – Billiard Visualization | Ngắm theo tỷ lệ</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- Header -->
+      <header class="app-header">
+        <h1>
+          Fractional Aiming <span class="subtitle">• Ngắm theo tỷ lệ</span>
+        </h1>
+        <p class="tagline">
+          Trực quan hoá phương pháp ngắm phổ biến trong billiard
+        </p>
+      </header>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Panel 1: Top-down table view -->
+        <section class="panel table-panel" id="table-panel">
+          <div class="panel-header">
+            <h2>🎱 Góc nhìn từ trên xuống</h2>
+            <span class="panel-badge">Top View</span>
+          </div>
+          <div class="canvas-container" id="table-container">
+            <canvas id="tableCanvas"></canvas>
+          </div>
+          <div class="table-hint">
+            <span
+              >🖱️ Kéo thả <strong>bi trắng</strong> và
+              <strong>bi vàng</strong> &bull; Nhấn vào <strong>lỗ</strong> để
+              chọn mục tiêu</span
+            >
+          </div>
+        </section>
+
+        <!-- Right column: Perspective + Config -->
+        <aside class="right-column">
+          <!-- Panel 2: Player perspective view -->
+          <section class="panel perspective-panel" id="perspective-panel">
+            <div class="panel-header">
+              <h2>👁️ Góc nhìn từ bi chủ</h2>
+              <span class="panel-badge">Player View</span>
+            </div>
+            <div class="canvas-container" id="perspective-container">
+              <canvas id="perspectiveCanvas"></canvas>
+            </div>
+          </section>
+
+          <!-- Panel 3: Configuration -->
+          <section class="panel config-panel" id="config-panel">
+            <div class="panel-header">
+              <h2>⚙️ Cấu hình</h2>
+              <span class="panel-badge">Settings</span>
+            </div>
+            <div class="config-content">
+              <!-- Info Display -->
+              <div class="info-grid">
+                <div class="info-item">
+                  <div class="info-label">Tỷ lệ</div>
+                  <div class="info-value" id="info-fraction">1/2</div>
+                  <div class="info-sub" id="info-fraction-pct">50%</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Góc cắt</div>
+                  <div class="info-value" id="info-angle">30.0°</div>
+                  <div class="info-sub" id="info-cut-dir">&nbsp;</div>
+                </div>
+              </div>
+
+              <!-- Fraction Presets -->
+              <div class="config-section">
+                <div class="section-label">Tỷ lệ ngắm</div>
+                <div class="preset-buttons" id="preset-buttons">
+                  <button class="preset-btn" data-fraction="1" id="preset-full">
+                    <span class="preset-name">Full</span>
+                    <span class="preset-angle">0°</span>
+                  </button>
+                  <button
+                    class="preset-btn"
+                    data-fraction="0.75"
+                    id="preset-34"
+                  >
+                    <span class="preset-name">3/4</span>
+                    <span class="preset-angle">14.5°</span>
+                  </button>
+                  <button class="preset-btn" data-fraction="0.5" id="preset-12">
+                    <span class="preset-name">1/2</span>
+                    <span class="preset-angle">30°</span>
+                  </button>
+                  <button
+                    class="preset-btn"
+                    data-fraction="0.25"
+                    id="preset-14"
+                  >
+                    <span class="preset-name">1/4</span>
+                    <span class="preset-angle">48.6°</span>
+                  </button>
+                  <button
+                    class="preset-btn"
+                    data-fraction="0.125"
+                    id="preset-18"
+                  >
+                    <span class="preset-name">1/8</span>
+                    <span class="preset-angle">61°</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Custom Fraction Slider -->
+              <div class="config-section">
+                <div class="section-label">Tuỳ chỉnh tỷ lệ</div>
+                <div class="slider-container">
+                  <span class="slider-min">0%</span>
+                  <input
+                    type="range"
+                    id="fraction-slider"
+                    min="0"
+                    max="100"
+                    value="50"
+                    step="1"
+                  />
+                  <span class="slider-max">100%</span>
+                </div>
+              </div>
+
+              <!-- Cue Tip Height -->
+              <div class="config-section">
+                <div class="section-label">Điểm đầu cơ (Tip Height)</div>
+                <div class="preset-buttons" id="tip-buttons">
+                  <button class="preset-btn tip-btn" data-tip="1" id="tip-high">
+                    <span class="preset-name">↑ Cao</span>
+                    <span class="preset-angle">Follow</span>
+                  </button>
+                  <button
+                    class="preset-btn tip-btn"
+                    data-tip="0.5"
+                    id="tip-34h"
+                  >
+                    <span class="preset-name">¾ Cao</span>
+                    <span class="preset-angle">Nhẹ</span>
+                  </button>
+                  <button
+                    class="preset-btn tip-btn active"
+                    data-tip="0"
+                    id="tip-center"
+                  >
+                    <span class="preset-name">Giữa</span>
+                    <span class="preset-angle">Stun</span>
+                  </button>
+                  <button
+                    class="preset-btn tip-btn"
+                    data-tip="-0.5"
+                    id="tip-34l"
+                  >
+                    <span class="preset-name">¾ Thấp</span>
+                    <span class="preset-angle">Nhẹ</span>
+                  </button>
+                  <button class="preset-btn tip-btn" data-tip="-1" id="tip-low">
+                    <span class="preset-name">↓ Thấp</span>
+                    <span class="preset-angle">Draw</span>
+                  </button>
+                </div>
+                <div class="slider-container">
+                  <span class="slider-min">Draw</span>
+                  <input
+                    type="range"
+                    id="tip-slider"
+                    min="-100"
+                    max="100"
+                    value="0"
+                    step="1"
+                  />
+                  <span class="slider-max">Follow</span>
+                </div>
+              </div>
+
+              <!-- Display Toggles -->
+              <div class="config-section">
+                <div class="section-label">Hiển thị</div>
+                <div class="toggle-list">
+                  <label class="toggle-row" for="toggle-aimLine">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #00d4ff"
+                      ></span>
+                      Đường ngắm (Aim Line)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-aimLine" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-objectPath">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #ffd700"
+                      ></span>
+                      Đường ăn bi (Ball Path)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-objectPath" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-deflectionPath">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #ff4da6"
+                      ></span>
+                      Đường ra bi cái (Deflection)
+                    </span>
+                    <span class="toggle-switch">
+                      <input
+                        type="checkbox"
+                        id="toggle-deflectionPath"
+                        checked
+                      />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-ghostBall">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: rgba(255, 255, 255, 0.5)"
+                      ></span>
+                      Ghost Ball (Bóng ma)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-ghostBall" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-cutAngle">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #ff8c00"
+                      ></span>
+                      Góc cắt (Cut Angle)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-cutAngle" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-contactPoint">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #ff3333"
+                      ></span>
+                      Điểm tiếp xúc (Contact)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-contactPoint" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-diamondGrid">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: rgba(255, 255, 255, 0.25)"
+                      ></span>
+                      Lưới kim cương (Diamond Grid)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-diamondGrid" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

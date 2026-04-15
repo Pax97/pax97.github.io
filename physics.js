@@ -581,37 +581,13 @@ const BilliardPhysics = (function () {
     const cueElevation = config.cueElevation || 0;
     const shaftType = config.shaftType || "ld";
 
-    // ---- Basic geometry (unchanged from original) ----
+    // ---- Basic geometry ----
     const dpVec = vecSub(pocket, ob);
     const dpLen = vecLen(dpVec);
     if (dpLen < 0.5) return null;
-    const dirPocket = vecNorm(dpVec);
+    const dirPocket = vecNorm(dpVec);  // True direction from OB to pocket
 
-    // Ghost ball position
     const BR = CONST.BALL_RADIUS;
-    const ghostBall = {
-      x: ob.x - dirPocket.x * 2 * BR,
-      y: ob.y - dirPocket.y * 2 * BR,
-    };
-
-    // Aim direction
-    const daVec = vecSub(ghostBall, cb);
-    const daLen = vecLen(daVec);
-    if (daLen < 0.5) return null;
-    const dirAim = vecNorm(daVec);
-
-    // Cut angle
-    const dot = vecDot(dirAim, dirPocket);
-    const cutAngle = Math.acos(clamp(dot, -1, 1));
-    const cutAngleDeg = radToDeg(cutAngle);
-    const fraction = clamp(1 - Math.sin(cutAngle), 0, 1);
-    const cross = vecCross2D(dirAim, dirPocket);
-
-    // Contact point
-    const contactPoint = {
-      x: ob.x - dirPocket.x * BR,
-      y: ob.y - dirPocket.y * BR,
-    };
 
     // ---- Phase 1: Cue strike ----
     const speed = normToSpeed(shotSpeedNorm);
@@ -619,25 +595,80 @@ const BilliardPhysics = (function () {
     const squirtAngle = calcSquirtAngle(tipSide, shaftType);
     const squirtAngleDeg = radToDeg(squirtAngle);
 
+    // ---- Phase 2: Throw calculation & compensation ----
+    // When throwCompensation is ON, we find the ghost ball such that AFTER throw,
+    // OB goes into the pocket. We rotate the line-of-centers backward by the
+    // throw angle and iterate twice for accuracy (throw depends on cut angle).
+    const useThrowComp = !!config.throwCompensation;
+
+    let dirLoC = dirPocket; // line-of-centers direction (start with ideal)
+    let ghostBall, dirAim, daLen, cutAngle, cross;
+    let citAngle, sitAngle, totalThrowAngle, citDir;
+
+    // First pass: compute throw using ideal geometry
+    ghostBall = {
+      x: ob.x - dirLoC.x * 2 * BR,
+      y: ob.y - dirLoC.y * 2 * BR,
+    };
+    let daVec = vecSub(ghostBall, cb);
+    daLen = vecLen(daVec);
+    if (daLen < 0.5) return null;
+    dirAim = vecNorm(daVec);
+
+    let dotVal = vecDot(dirAim, dirLoC);
+    cutAngle = Math.acos(clamp(dotVal, -1, 1));
+    cross = vecCross2D(dirAim, dirLoC);
+
+    citAngle = calcCutInducedThrow(cutAngle, speed);
+    sitAngle = calcSpinInducedThrow(spin.sidespin, speed);
+    citDir = cross >= 0 ? -1 : 1;
+    totalThrowAngle = citDir * citAngle + sitAngle;
+
+    // Compensation iterations: adjust line-of-centers so throw lands OB in pocket
+    if (useThrowComp && Math.abs(totalThrowAngle) > 1e-6) {
+      for (let iter = 0; iter < 2; iter++) {
+        dirLoC = vecRot(dirPocket, -totalThrowAngle);
+        ghostBall = {
+          x: ob.x - dirLoC.x * 2 * BR,
+          y: ob.y - dirLoC.y * 2 * BR,
+        };
+        daVec = vecSub(ghostBall, cb);
+        daLen = vecLen(daVec);
+        if (daLen < 0.5) return null;
+        dirAim = vecNorm(daVec);
+
+        dotVal = vecDot(dirAim, dirLoC);
+        cutAngle = Math.acos(clamp(dotVal, -1, 1));
+        cross = vecCross2D(dirAim, dirLoC);
+
+        citAngle = calcCutInducedThrow(cutAngle, speed);
+        sitAngle = calcSpinInducedThrow(spin.sidespin, speed);
+        citDir = cross >= 0 ? -1 : 1;
+        totalThrowAngle = citDir * citAngle + sitAngle;
+      }
+    }
+
+    const cutAngleDeg = radToDeg(cutAngle);
+    const fraction = clamp(1 - Math.sin(cutAngle), 0, 1);
+    const totalThrowAngleDeg = radToDeg(totalThrowAngle);
+
+    // Throw-adjusted OB direction (line-of-centers rotated by throw)
+    // With compensation ON:  dirPocketThrown ≈ dirPocket (toward pocket)
+    // With compensation OFF: dirPocketThrown deviates away from pocket
+    const dirPocketThrown = vecRot(dirLoC, totalThrowAngle);
+
+    // Contact point on the actual line of centers
+    const contactPoint = {
+      x: ob.x - dirLoC.x * BR,
+      y: ob.y - dirLoC.y * BR,
+    };
+
     // Squirt-adjusted aim direction (actual CB path before contact)
     const dirAimSquirted = vecRot(dirAim, squirtAngle);
 
-    // ---- Phase 2: Throw ----
-    const citAngle = calcCutInducedThrow(cutAngle, speed);
-    const sitAngle = calcSpinInducedThrow(spin.sidespin, speed);
-
-    // Total throw: CIT + SIT (CIT direction depends on cut side)
-    // CIT always throws OB toward the thin side (opposite to cut direction)
-    const citDir = cross >= 0 ? -1 : 1; // same convention as cut side
-    const totalThrowAngle = citDir * citAngle + sitAngle;
-    const totalThrowAngleDeg = radToDeg(totalThrowAngle);
-
-    // Throw-adjusted OB direction
-    const dirPocketThrown = vecRot(dirPocket, totalThrowAngle);
-
     // ---- Phase 2b: CB deflection ----
     const { deflDir, stunDir, deflAngleDeg } = calcCBDeflection(
-      dirAim, dirPocket, cutAngle, tipHeight
+      dirAim, dirLoC, cutAngle, tipHeight
     );
 
     // ---- Phase 3: Swerve path (CB pre-collision) ----
@@ -689,6 +720,7 @@ const BilliardPhysics = (function () {
       citAngleDeg: radToDeg(citAngle),
       sitAngleDeg: radToDeg(sitAngle * (sitAngle !== 0 ? 1 : 0)),
       dirPocketThrown,
+      dirLineOfCenters: dirLoC,  // actual line-of-centers (= dirPocket when no compensation)
 
       // New: Squirt data
       squirtAngle,

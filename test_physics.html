@@ -607,6 +607,7 @@ log.push('═══════════════════════�
     const fields = ['ghostBall', 'cutAngle', 'cutAngleDeg', 'fraction', 'cross',
         'stunDir', 'deflDir', 'deflAngleDeg', 'contactPoint', 'dirPocket', 'dirAim',
         'aimDist', 'pocketDist', 'throwAngle', 'throwAngleDeg', 'dirPocketThrown',
+        'dirLineOfCenters',
         'squirtAngle', 'squirtAngleDeg', 'dirAimSquirted', 'spin', 'speed',
         'swervePath', 'cbStopPos', 'obStopPos', 'cbBouncePath'];
     let allPresent = true;
@@ -634,6 +635,233 @@ log.push('═══════════════════════�
     assert('Spin: topspin present', Math.abs(spin.topspin) > 0, `got ${spin.topspin.toFixed(1)}`);
     assert('Spin: left English → negative sidespin', spin.sidespin < 0, `got ${spin.sidespin.toFixed(1)}`);
     assert('Spin: follow → positive topspin', spin.topspin > 0, `got ${spin.topspin.toFixed(1)}`);
+}
+
+// ============================================================
+//    SECTION 11: THROW COMPENSATION
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 11: THROW COMPENSATION');
+log.push('═══════════════════════════════');
+
+// Helper: call with throw compensation ON
+function calcGeometryComp(cb, ob, pocket, tipHeight, tipSide, shotSpeed) {
+    return P.calcFullGeometry(cb, ob, pocket, {
+        tipHeight: tipHeight || 0,
+        tipSide: tipSide || 0,
+        shotSpeed: shotSpeed != null ? shotSpeed : 0.5,
+        cueElevation: 0,
+        shaftType: 'ld',
+        throwCompensation: true,
+    });
+}
+
+// Helper: angle between two unit vectors in degrees
+function angleBetween(a, b) {
+    const dot = a.x * b.x + a.y * b.y;
+    return Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+}
+
+// TEST 11.1: Without compensation, dirPocketThrown ≠ dirPocket (old behavior)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket, 0, 0, 0.5); // no compensation
+    const diff = angleBetween(g.dirPocketThrown, g.dirPocket);
+    assert('11.1 No comp: dirPocketThrown ≠ dirPocket', diff > 0.05,
+        `diff = ${diff.toFixed(4)}°`);
+    // dirLineOfCenters should equal dirPocket when no compensation
+    const locDiff = angleBetween(g.dirLineOfCenters, g.dirPocket);
+    assert('11.1 No comp: dirLineOfCenters = dirPocket', locDiff < 0.01,
+        `diff = ${locDiff.toFixed(4)}°`);
+}
+
+// TEST 11.2: With compensation, dirPocketThrown ≈ dirPocket (OB goes into pocket)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    const g = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    const diff = angleBetween(g.dirPocketThrown, g.dirPocket);
+    assert('11.2 Comp ON: dirPocketThrown ≈ dirPocket', diff < 0.1,
+        `diff = ${diff.toFixed(4)}° (should be ≈ 0)`);
+}
+
+// TEST 11.3: With compensation, dirLineOfCenters ≠ dirPocket (shifted for throw)
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    const g = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    const diff = angleBetween(g.dirLineOfCenters, g.dirPocket);
+    assert('11.3 Comp ON: dirLineOfCenters ≠ dirPocket', diff > 0.05,
+        `diff = ${diff.toFixed(4)}° (should be > 0)`);
+}
+
+// TEST 11.4: Mathematical identity — rotate(dirLineOfCenters, throwAngle) ≈ dirPocket
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    const g = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    // Manually rotate dirLineOfCenters by throwAngle
+    const rotated = U.vecRot(g.dirLineOfCenters, g.throwAngle);
+    const diff = angleBetween(rotated, g.dirPocket);
+    assert('11.4 Identity: rot(LoC, throw) ≈ dirPocket', diff < 0.15,
+        `diff = ${diff.toFixed(4)}°`);
+}
+
+// TEST 11.5: Ghost ball shifts when compensation is ON
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    const gOff = calcGeometry(cb, ob, pocket, 0, 0, 0.5);
+    const gOn = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    const gbDist = Math.sqrt((gOn.ghostBall.x - gOff.ghostBall.x)**2 +
+                             (gOn.ghostBall.y - gOff.ghostBall.y)**2);
+    assert('11.5 Ghost ball shifts with compensation', gbDist > 0.01,
+        `shift = ${gbDist.toFixed(4)} inches`);
+    // Shift should be small (throw < 3°, so shift < ~0.2 inches on a 2*BR = 2.25" diameter)
+    assert('11.5 Ghost ball shift is small (< 0.5")', gbDist < 0.5,
+        `shift = ${gbDist.toFixed(4)} inches`);
+}
+
+// TEST 11.6: Straight shot (0° cut) — no throw, compensation has no effect
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
+    const gOff = calcGeometry(cb, ob, pocket, 0, 0, 0.5);
+    const gOn = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    assert('11.6 Straight: same ghost ball', approxV(gOn.ghostBall, gOff.ghostBall, 0.001),
+        `off=(${gOff.ghostBall.x.toFixed(3)},${gOff.ghostBall.y.toFixed(3)}) on=(${gOn.ghostBall.x.toFixed(3)},${gOn.ghostBall.y.toFixed(3)})`);
+    assert('11.6 Straight: same cut angle', approx(gOff.cutAngleDeg, gOn.cutAngleDeg, 0.01),
+        `off=${gOff.cutAngleDeg.toFixed(3)} on=${gOn.cutAngleDeg.toFixed(3)}`);
+}
+
+// TEST 11.7: Various cut angles — dirPocketThrown always ≈ dirPocket with comp
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    let allOk = true;
+    [15, 30, 45, 60].forEach(cutDeg => {
+        const theta = cutDeg * Math.PI / 180;
+        const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+        const g = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+        const diff = angleBetween(g.dirPocketThrown, g.dirPocket);
+        if (diff > 0.2) {
+            allOk = false;
+            log.push(`  Cut ${cutDeg}°: dirPocketThrown off by ${diff.toFixed(4)}°`);
+        }
+    });
+    assert('11.7 All cut angles: dirPocketThrown ≈ dirPocket', allOk, 'see above');
+}
+
+// TEST 11.8: With SIT (side English) — compensation still works
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    // Left English (tipSide = -0.8)
+    const g = P.calcFullGeometry(cb, ob, pocket, {
+        tipHeight: 0, tipSide: -0.8, shotSpeed: 0.5,
+        shaftType: 'ld', throwCompensation: true,
+    });
+    const diff = angleBetween(g.dirPocketThrown, g.dirPocket);
+    assert('11.8 SIT + comp: dirPocketThrown ≈ dirPocket', diff < 0.2,
+        `diff = ${diff.toFixed(4)}° with English`);
+}
+
+// TEST 11.9: Slow shot — more throw, compensation adjusts more
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    const gSlow = P.calcFullGeometry(cb, ob, pocket, {
+        shotSpeed: 0.1, throwCompensation: true,
+    });
+    const gFast = P.calcFullGeometry(cb, ob, pocket, {
+        shotSpeed: 0.9, throwCompensation: true,
+    });
+    // Both should still point thrown direction at pocket
+    const diffSlow = angleBetween(gSlow.dirPocketThrown, gSlow.dirPocket);
+    const diffFast = angleBetween(gFast.dirPocketThrown, gFast.dirPocket);
+    assert('11.9 Slow shot comp: thrown ≈ pocket', diffSlow < 0.2,
+        `diff = ${diffSlow.toFixed(4)}°`);
+    assert('11.9 Fast shot comp: thrown ≈ pocket', diffFast < 0.2,
+        `diff = ${diffFast.toFixed(4)}°`);
+    // Slow shot should shift ghost ball MORE than fast shot
+    const gSlowOff = calcGeometry(cb, ob, pocket, 0, 0, 0.1);
+    const gbShiftSlow = Math.sqrt((gSlow.ghostBall.x - gSlowOff.ghostBall.x)**2 +
+                                  (gSlow.ghostBall.y - gSlowOff.ghostBall.y)**2);
+    const gFastOff = calcGeometry(cb, ob, pocket, 0, 0, 0.9);
+    const gbShiftFast = Math.sqrt((gFast.ghostBall.x - gFastOff.ghostBall.x)**2 +
+                                  (gFast.ghostBall.y - gFastOff.ghostBall.y)**2);
+    assert('11.9 Slow → bigger ghost shift', gbShiftSlow > gbShiftFast,
+        `slow=${gbShiftSlow.toFixed(4)}" fast=${gbShiftFast.toFixed(4)}"`);
+}
+
+// TEST 11.10: Diagonal pocket — compensation works
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 0 };
+    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
+    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
+    const dp = {x:dpx/dpLen, y:dpy/dpLen};
+    const gb_ideal = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
+    const theta = 25 * Math.PI / 180;
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    const aimDir = { x: dp.x*cosT - dp.y*sinT, y: dp.x*sinT + dp.y*cosT };
+    const cb = { x: gb_ideal.x - aimDir.x*25, y: gb_ideal.y - aimDir.y*25 };
+    const g = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    const diff = angleBetween(g.dirPocketThrown, g.dirPocket);
+    assert('11.10 Diagonal pocket comp: thrown ≈ pocket', diff < 0.2,
+        `diff = ${diff.toFixed(4)}°`);
+}
+
+// TEST 11.11: Convergence — iteration produces better result than single pass
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    // Manually do 1-pass compensation
+    const g0 = calcGeometry(cb, ob, pocket, 0, 0, 0.5); // no comp
+    const dirLoC_1pass = U.vecRot(g0.dirPocket, -g0.throwAngle);
+    const dirThrown_1pass = U.vecRot(dirLoC_1pass, g0.throwAngle); // should ≈ dirPocket but not exact
+    const diff_1pass = angleBetween(dirThrown_1pass, g0.dirPocket);
+    // Compare with full iterative compensation
+    const g2 = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    const diff_iter = angleBetween(g2.dirPocketThrown, g2.dirPocket);
+    // 1-pass is a rough identity (rotate back then forward) so diff should be near 0
+    // but iterative should be at least as good
+    assert('11.11 Convergence: iterative ≤ 1-pass error', diff_iter <= diff_1pass + 0.01,
+        `iter=${diff_iter.toFixed(4)}° 1pass=${diff_1pass.toFixed(4)}°`);
+}
+
+// TEST 11.12: Contact point is on dirLineOfCenters, not dirPocket
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb_ideal = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb_ideal.x - Math.cos(theta)*dist, y: gb_ideal.y + Math.sin(theta)*dist };
+    const g = calcGeometryComp(cb, ob, pocket, 0, 0, 0.5);
+    // Contact point should be BR from OB along dirLineOfCenters
+    const expectedCP = {
+        x: ob.x - g.dirLineOfCenters.x * BR,
+        y: ob.y - g.dirLineOfCenters.y * BR,
+    };
+    assert('11.12 ContactPt on LoC (x)', approx(g.contactPoint.x, expectedCP.x, 0.001),
+        `expected ${expectedCP.x.toFixed(4)}, got ${g.contactPoint.x.toFixed(4)}`);
+    assert('11.12 ContactPt on LoC (y)', approx(g.contactPoint.y, expectedCP.y, 0.001),
+        `expected ${expectedCP.y.toFixed(4)}, got ${g.contactPoint.y.toFixed(4)}`);
 }
 
 // ============================================================

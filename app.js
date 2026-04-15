@@ -69,10 +69,10 @@
     cutAngle: "#ff8c00",
     contactPoint: "#ff3333",
     // New physics colors
-    throwPath: "#ff6b35",        // thrown OB path (orange)
-    squirtLine: "#e879f9",       // squirt-adjusted aim (purple/pink)
-    swervePath: "#a855f7",       // swerve curve (purple)
-    predictedStop: "#22d3ee",    // predicted stop position (cyan)
+    throwPath: "#ff6b35", // thrown OB path (orange)
+    squirtLine: "#e879f9", // squirt-adjusted aim (purple/pink)
+    swervePath: "#a855f7", // swerve curve (purple)
+    predictedStop: "#22d3ee", // predicted stop position (cyan)
     bouncePath: "rgba(255,77,166,0.5)", // multi-bounce path
     // Aramith Tournament Black balls
     cueBall: "#fffff5", // ivory white
@@ -114,7 +114,7 @@
       bouncePath: false,
     },
     tipHeight: 0, // -1 (draw/low) to 0 (stun/center) to +1 (follow/high)
-    tipSide: 0,   // -1 (left English) to +1 (right English)
+    tipSide: 0, // -1 (left English) to +1 (right English)
     shotSpeed: 0.5, // 0 (soft) to 1 (hard)
     cueElevation: 0, // 0° to 30°
     shaftType: "ld", // 'ld' (low-deflection) or 'std'
@@ -125,7 +125,22 @@
     viewZoom: 1,
     viewPanX: 0,
     viewPanY: 0,
+    // ---- Dirty-flag rendering (GPU optimization) ----
+    _isDirty: true, // needs re-render?
+    _rafId: null, // requestAnimationFrame ID
   };
+
+  /**
+   * Mark the scene as needing a re-render.
+   * Schedules a single rAF if one isn't already pending.
+   * This is the ONLY way rendering should be triggered.
+   */
+  function markDirty() {
+    state._isDirty = true;
+    if (!state._rafId) {
+      state._rafId = requestAnimationFrame(loop);
+    }
+  }
 
   // Pinch / pan gesture tracking (not part of serializable state)
   let pinch = null; // { startDist, startZoom, startPanX, startPanY, centerX, centerY }
@@ -283,6 +298,7 @@
       shotSpeed: state.shotSpeed,
       cueElevation: state.cueElevation,
       shaftType: state.shaftType,
+      throwCompensation: state.show.throwEffect,
     });
   }
 
@@ -581,57 +597,78 @@
     const pk = POCKETS[state.selectedPocket];
     const pkp = t2c(pk.x, pk.y);
 
-    // ---- Object ball path (OB → pocket) — ideal (no throw) ----
+    // ---- Object ball path ----
     if (state.show.objectPath) {
-      ctx.save();
-      ctx.shadowColor = COLORS.objectPath;
-      ctx.shadowBlur = 6;
-      ctx.strokeStyle = COLORS.objectPath;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = state.show.throwEffect ? 0.3 : 0.8;
-      ctx.setLineDash(state.show.throwEffect ? [4, 4] : []);
-      ctx.beginPath();
-      ctx.moveTo(obp.x, obp.y);
-      ctx.lineTo(pkp.x, pkp.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      if (!state.show.throwEffect) {
+      const hasThrow =
+        state.show.throwEffect &&
+        g.dirLineOfCenters &&
+        Math.abs(g.throwAngleDeg) > 0.05;
+
+      if (hasThrow) {
+        // With throw compensation: OB goes INTO the pocket after throw.
+        // Primary path (solid, orange): OB → pocket (throw-compensated trajectory)
+        ctx.save();
+        ctx.shadowColor = COLORS.throwPath;
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = COLORS.throwPath;
+        ctx.lineWidth = 2.5;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(obp.x, obp.y);
+        ctx.lineTo(pkp.x, pkp.y);
+        ctx.stroke();
+        drawArrow(ctx, obp, pkp, COLORS.throwPath);
+
+        // Throw angle label on the primary path
+        const throwLabelT = 0.55;
+        const throwLx = obp.x + (pkp.x - obp.x) * throwLabelT;
+        const throwLy = obp.y + (pkp.y - obp.y) * throwLabelT;
+        drawLabel(
+          ctx,
+          `Throw ${g.throwAngleDeg > 0 ? "+" : ""}${g.throwAngleDeg.toFixed(1)}°`,
+          throwLx,
+          throwLy,
+          {
+            font: "bold 10px Inter",
+            color: COLORS.throwPath,
+            alpha: 0.9,
+            align: "center",
+          },
+        );
+        ctx.restore();
+
+        // Reference path (dashed, green): line-of-centers without throw (misses pocket)
+        const noThrowRailPt = rayToRail(
+          state.objectBall.x, state.objectBall.y,
+          g.dirLineOfCenters.x, g.dirLineOfCenters.y
+        );
+        const noThrowEndP = t2c(noThrowRailPt.x, noThrowRailPt.y);
+        ctx.save();
+        ctx.strokeStyle = COLORS.objectPath;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.3;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(obp.x, obp.y);
+        ctx.lineTo(noThrowEndP.x, noThrowEndP.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      } else {
+        // No significant throw — ideal path is the primary path (solid)
+        ctx.save();
+        ctx.shadowColor = COLORS.objectPath;
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = COLORS.objectPath;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(obp.x, obp.y);
+        ctx.lineTo(pkp.x, pkp.y);
+        ctx.stroke();
         drawArrow(ctx, obp, pkp, COLORS.objectPath);
+        ctx.restore();
       }
-      ctx.restore();
-    }
-
-    // ---- Throw-adjusted OB path (actual trajectory with friction throw) ----
-    if (state.show.throwEffect && state.show.objectPath && g.dirPocketThrown && Math.abs(g.throwAngleDeg) > 0.05) {
-      const throwRailPt = rayToRail(
-        state.objectBall.x, state.objectBall.y,
-        g.dirPocketThrown.x, g.dirPocketThrown.y
-      );
-      const thrownEndP = t2c(throwRailPt.x, throwRailPt.y);
-
-      ctx.save();
-      ctx.shadowColor = COLORS.throwPath;
-      ctx.shadowBlur = 6;
-      ctx.strokeStyle = COLORS.throwPath;
-      ctx.lineWidth = 2.5;
-      ctx.globalAlpha = 0.85;
-      ctx.beginPath();
-      ctx.moveTo(obp.x, obp.y);
-      ctx.lineTo(thrownEndP.x, thrownEndP.y);
-      ctx.stroke();
-      drawArrow(ctx, obp, thrownEndP, COLORS.throwPath);
-
-      // Throw angle label
-      const throwLabelT = 0.55;
-      const throwLx = obp.x + (thrownEndP.x - obp.x) * throwLabelT;
-      const throwLy = obp.y + (thrownEndP.y - obp.y) * throwLabelT;
-      drawLabel(ctx, `Throw ${g.throwAngleDeg > 0 ? '+' : ''}${g.throwAngleDeg.toFixed(1)}°`, throwLx, throwLy, {
-        font: "bold 10px Inter",
-        color: COLORS.throwPath,
-        alpha: 0.9,
-        align: "center",
-      });
-      ctx.restore();
     }
 
     // ---- Aim line (CB → ghost ball) ----
@@ -643,8 +680,8 @@
       // Main aim line (ideal, no squirt)
       ctx.strokeStyle = COLORS.aimLine;
       ctx.lineWidth = 2;
-      ctx.globalAlpha = (Math.abs(state.tipSide) > 0.05) ? 0.4 : 0.85;
-      ctx.setLineDash((Math.abs(state.tipSide) > 0.05) ? [4, 4] : []);
+      ctx.globalAlpha = Math.abs(state.tipSide) > 0.05 ? 0.4 : 0.85;
+      ctx.setLineDash(Math.abs(state.tipSide) > 0.05 ? [4, 4] : []);
       ctx.beginPath();
       ctx.moveTo(cbp.x, cbp.y);
       ctx.lineTo(gbp.x, gbp.y);
@@ -672,7 +709,11 @@
     }
 
     // ---- Squirt-adjusted aim line (actual CB path with English) ----
-    if (state.show.aimLine && g.dirAimSquirted && Math.abs(g.squirtAngleDeg) > 0.05) {
+    if (
+      state.show.aimLine &&
+      g.dirAimSquirted &&
+      Math.abs(g.squirtAngleDeg) > 0.05
+    ) {
       ctx.save();
       ctx.shadowColor = COLORS.squirtLine;
       ctx.shadowBlur = 4;
@@ -684,20 +725,24 @@
       ctx.moveTo(cbp.x, cbp.y);
       ctx.lineTo(
         cbp.x + g.dirAimSquirted.x * sqExt,
-        cbp.y + g.dirAimSquirted.y * sqExt
+        cbp.y + g.dirAimSquirted.y * sqExt,
       );
       ctx.stroke();
 
       // Squirt label
       const sqLabelT = 0.3;
-      drawLabel(ctx, `Squirt ${g.squirtAngleDeg > 0 ? '+' : ''}${g.squirtAngleDeg.toFixed(1)}°`,
+      drawLabel(
+        ctx,
+        `Squirt ${g.squirtAngleDeg > 0 ? "+" : ""}${g.squirtAngleDeg.toFixed(1)}°`,
         cbp.x + g.dirAimSquirted.x * sqExt * sqLabelT,
-        cbp.y + g.dirAimSquirted.y * sqExt * sqLabelT, {
-        font: "bold 9px Inter",
-        color: COLORS.squirtLine,
-        alpha: 0.85,
-        align: "center",
-      });
+        cbp.y + g.dirAimSquirted.y * sqExt * sqLabelT,
+        {
+          font: "bold 9px Inter",
+          color: COLORS.squirtLine,
+          alpha: 0.85,
+          align: "center",
+        },
+      );
       ctx.restore();
     }
 
@@ -871,7 +916,12 @@
     }
 
     // ---- Multi-bounce CB path ----
-    if (state.show.bouncePath && g.cbBouncePath && g.cbBouncePath.length > 1 && g.cutAngleDeg > 1) {
+    if (
+      state.show.bouncePath &&
+      g.cbBouncePath &&
+      g.cbBouncePath.length > 1 &&
+      g.cutAngleDeg > 1
+    ) {
       ctx.save();
       ctx.strokeStyle = COLORS.bouncePath;
       ctx.lineWidth = 1.5;
@@ -938,20 +988,21 @@
     }
 
     // ---- Cut angle arc ----
-    // The cut angle = acos(dirAim · dirPocket).  These two direction
-    // vectors meet at the ghost ball (= CB's position at contact).
+    // The cut angle = acos(dirAim · dirLineOfCenters).  These two
+    // direction vectors meet at the ghost ball (= CB's position at contact).
     // We draw the arc there so the visual matches the computed value.
     //
-    // dirAim    = the direction the CB travels (CB → ghost ball)
-    // dirPocket = the direction the OB will travel (OB → pocket)
-    //             which equals the line-of-centers direction at contact
+    // dirAim           = the direction the CB travels (CB → ghost ball)
+    // dirLineOfCenters = the actual line-of-centers at contact
+    //                    (with throw compensation, this differs from dirPocket)
     //
-    // The arc sweeps from dirAim to dirPocket at the ghost ball.
+    // The arc sweeps from dirAim to dirLineOfCenters at the ghost ball.
     if (state.show.cutAngle && g.cutAngleDeg > 0.5) {
       const arcR = Math.max(15, br * 3);
 
       const aimAngle = Math.atan2(g.dirAim.y, g.dirAim.x);
-      const pocketAngle = Math.atan2(g.dirPocket.y, g.dirPocket.x);
+      const locDir = g.dirLineOfCenters || g.dirPocket;
+      const pocketAngle = Math.atan2(locDir.y, locDir.x);
 
       // Sweep: choose the shorter arc
       let sweep = pocketAngle - aimAngle;
@@ -1614,10 +1665,16 @@
     const throwEl = document.getElementById("info-throw");
     const throwDetailEl = document.getElementById("info-throw-detail");
     if (throwEl && geom.throwAngleDeg != null) {
-      throwEl.textContent = Math.abs(geom.throwAngleDeg) < 0.05 ? "0.0°" :
-        (geom.throwAngleDeg > 0 ? "+" : "") + geom.throwAngleDeg.toFixed(1) + "°";
+      throwEl.textContent =
+        Math.abs(geom.throwAngleDeg) < 0.05
+          ? "0.0°"
+          : (geom.throwAngleDeg > 0 ? "+" : "") +
+            geom.throwAngleDeg.toFixed(1) +
+            "°";
       const citPart = geom.citAngleDeg ? geom.citAngleDeg.toFixed(1) : "0.0";
-      const sitPart = geom.sitAngleDeg ? Math.abs(geom.sitAngleDeg).toFixed(1) : "0.0";
+      const sitPart = geom.sitAngleDeg
+        ? Math.abs(geom.sitAngleDeg).toFixed(1)
+        : "0.0";
       throwDetailEl.textContent = `CIT ${citPart}° + SIT ${sitPart}°`;
     }
 
@@ -1625,9 +1682,14 @@
     const squirtEl = document.getElementById("info-squirt");
     const squirtDetailEl = document.getElementById("info-squirt-detail");
     if (squirtEl && geom.squirtAngleDeg != null) {
-      squirtEl.textContent = Math.abs(geom.squirtAngleDeg) < 0.01 ? "0.0°" :
-        (geom.squirtAngleDeg > 0 ? "+" : "") + geom.squirtAngleDeg.toFixed(1) + "°";
-      squirtDetailEl.textContent = state.shaftType === "ld" ? "Low Deflection" : "Standard";
+      squirtEl.textContent =
+        Math.abs(geom.squirtAngleDeg) < 0.01
+          ? "0.0°"
+          : (geom.squirtAngleDeg > 0 ? "+" : "") +
+            geom.squirtAngleDeg.toFixed(1) +
+            "°";
+      squirtDetailEl.textContent =
+        state.shaftType === "ld" ? "Low Deflection" : "Standard";
     }
 
     // Slider
@@ -1677,6 +1739,7 @@
     const pocketIdx = hitTestPocket(tp);
     if (pocketIdx >= 0) {
       state.selectedPocket = pocketIdx;
+      markDirty();
       return;
     }
 
@@ -1689,6 +1752,7 @@
 
     if (state.dragging) {
       state.animTarget = null; // cancel any animation
+      markDirty();
     }
   });
 
@@ -1701,10 +1765,11 @@
       ball.x = clamp(tp.x, BR, TW - BR);
       ball.y = clamp(tp.y, BR, TH - BR);
       $tableCanvas.style.cursor = "grabbing";
+      markDirty();
       return;
     }
 
-    // Hover detection
+    // Hover detection (no markDirty needed — cosmetic cursor only)
     if (hitTestBall(tp, state.cueBall)) {
       state.hoverBall = "cueBall";
       $tableCanvas.style.cursor = "grab";
@@ -1843,6 +1908,7 @@
           dy +
           (cy - pinch.startPanY) * (1 - newZoom / pinch.startZoom);
         clampPan();
+        markDirty();
         return;
       }
 
@@ -1854,6 +1920,7 @@
         state.viewPanY += dy;
         clampPan();
         panTouch = { x: touches[0].clientX, y: touches[0].clientY };
+        markDirty();
         return;
       }
 
@@ -1864,6 +1931,7 @@
           state.dragging === "cueBall" ? state.cueBall : state.objectBall;
         ball.x = clamp(tp.x, BR, TW - BR);
         ball.y = clamp(tp.y, BR, TH - BR);
+        markDirty();
       }
     },
     { passive: false },
@@ -1882,6 +1950,7 @@
     btn.addEventListener("click", function () {
       const targetFraction = parseFloat(this.dataset.fraction);
       placeCueBallForFraction(targetFraction);
+      markDirty();
     });
   });
 
@@ -1891,6 +1960,7 @@
     .addEventListener("input", function () {
       const targetFraction = parseInt(this.value) / 100;
       placeCueBallForFraction(targetFraction);
+      markDirty();
     });
 
   // ---- Tip height preset buttons ----
@@ -1901,6 +1971,7 @@
     document.querySelectorAll(".tip-btn").forEach((b) => {
       b.classList.toggle("active", parseFloat(b.dataset.tip) === val);
     });
+    markDirty();
   }
 
   document.querySelectorAll(".tip-btn").forEach((btn) => {
@@ -1920,6 +1991,7 @@
         Math.abs(parseFloat(b.dataset.tip) - val) < 0.01,
       );
     });
+    markDirty();
   });
 
   // ---- Toggle switches ----
@@ -1940,6 +2012,7 @@
     if (el) {
       el.addEventListener("change", function () {
         state.show[key] = this.checked;
+        markDirty();
       });
     }
   });
@@ -1949,8 +2022,12 @@
     state.tipSide = clamp(val, -1, 1);
     document.getElementById("english-slider").value = Math.round(val * 100);
     document.querySelectorAll(".eng-btn").forEach((b) => {
-      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.eng) - val) < 0.01);
+      b.classList.toggle(
+        "active",
+        Math.abs(parseFloat(b.dataset.eng) - val) < 0.01,
+      );
     });
+    markDirty();
   }
 
   document.querySelectorAll(".eng-btn").forEach((btn) => {
@@ -1959,21 +2036,31 @@
     });
   });
 
-  document.getElementById("english-slider").addEventListener("input", function () {
-    const val = parseInt(this.value) / 100;
-    state.tipSide = clamp(val, -1, 1);
-    document.querySelectorAll(".eng-btn").forEach((b) => {
-      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.eng) - val) < 0.01);
+  document
+    .getElementById("english-slider")
+    .addEventListener("input", function () {
+      const val = parseInt(this.value) / 100;
+      state.tipSide = clamp(val, -1, 1);
+      document.querySelectorAll(".eng-btn").forEach((b) => {
+        b.classList.toggle(
+          "active",
+          Math.abs(parseFloat(b.dataset.eng) - val) < 0.01,
+        );
+      });
+      markDirty();
     });
-  });
 
   // ---- Shot speed controls ----
   function setShotSpeed(val) {
     state.shotSpeed = clamp(val, 0, 1);
     document.getElementById("speed-slider").value = Math.round(val * 100);
     document.querySelectorAll(".speed-btn").forEach((b) => {
-      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.speed) - val) < 0.02);
+      b.classList.toggle(
+        "active",
+        Math.abs(parseFloat(b.dataset.speed) - val) < 0.02,
+      );
     });
+    markDirty();
   }
 
   document.querySelectorAll(".speed-btn").forEach((btn) => {
@@ -1982,18 +2069,27 @@
     });
   });
 
-  document.getElementById("speed-slider").addEventListener("input", function () {
-    const val = parseInt(this.value) / 100;
-    state.shotSpeed = clamp(val, 0, 1);
-    document.querySelectorAll(".speed-btn").forEach((b) => {
-      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.speed) - val) < 0.02);
+  document
+    .getElementById("speed-slider")
+    .addEventListener("input", function () {
+      const val = parseInt(this.value) / 100;
+      state.shotSpeed = clamp(val, 0, 1);
+      document.querySelectorAll(".speed-btn").forEach((b) => {
+        b.classList.toggle(
+          "active",
+          Math.abs(parseFloat(b.dataset.speed) - val) < 0.02,
+        );
+      });
+      markDirty();
     });
-  });
 
   // ---- Cue elevation slider ----
-  document.getElementById("elevation-slider").addEventListener("input", function () {
-    state.cueElevation = parseInt(this.value);
-  });
+  document
+    .getElementById("elevation-slider")
+    .addEventListener("input", function () {
+      state.cueElevation = parseInt(this.value);
+      markDirty();
+    });
 
   // ---- Shaft type buttons ----
   document.querySelectorAll(".shaft-btn").forEach((btn) => {
@@ -2002,12 +2098,14 @@
       document.querySelectorAll(".shaft-btn").forEach((b) => {
         b.classList.toggle("active", b.dataset.shaft === state.shaftType);
       });
+      markDirty();
     });
   });
 
   // ---- Window resize ----
   window.addEventListener("resize", function () {
     resize();
+    markDirty();
   });
 
   // ================================================================
@@ -2063,10 +2161,19 @@
   }
 
   // ================================================================
-  //  ANIMATION LOOP
+  //  ANIMATION LOOP (dirty-flag architecture)
   // ================================================================
+  /**
+   * The render loop now uses a dirty-flag pattern:
+   *  - Renders ONLY when state._isDirty is true
+   *  - Keeps looping while an animation (animTarget) is active
+   *  - Goes completely idle when nothing changes → 0% GPU
+   */
   function loop() {
+    state._rafId = null; // clear the pending rAF reference
+
     // Animate cue ball toward target
+    let animating = false;
     if (state.animTarget) {
       const dx = state.animTarget.x - state.cueBall.x;
       const dy = state.animTarget.y - state.cueBall.y;
@@ -2077,13 +2184,23 @@
       } else {
         state.cueBall.x += dx * 0.14;
         state.cueBall.y += dy * 0.14;
+        animating = true;
       }
+      state._isDirty = true; // animation always triggers render
     }
 
-    renderTable();
-    renderPerspective();
-    updateUI(calcGeometry());
-    requestAnimationFrame(loop);
+    // Only render if something changed
+    if (state._isDirty) {
+      renderTable();
+      renderPerspective();
+      updateUI(calcGeometry());
+      state._isDirty = false;
+    }
+
+    // Keep looping only while animating; otherwise go idle
+    if (animating) {
+      state._rafId = requestAnimationFrame(loop);
+    }
   }
 
   // ================================================================
@@ -2091,7 +2208,7 @@
   // ================================================================
   function init() {
     resize();
-    loop();
+    markDirty(); // initial render
   }
 
   if (document.readyState === "loading") {

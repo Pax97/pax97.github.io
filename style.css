@@ -238,20 +238,20 @@ body {
 /* Info Grid */
 .info-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 6px;
 }
 
 .info-item {
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  padding: 8px 6px;
   text-align: center;
 }
 
 .info-label {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -259,7 +259,7 @@ body {
 }
 
 .info-value {
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 800;
   margin-top: 2px;
   background: linear-gradient(135deg, var(--accent), var(--green));
@@ -269,7 +269,7 @@ body {
 }
 
 .info-sub {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
   color: var(--text-secondary);
   margin-top: 1px;
 }

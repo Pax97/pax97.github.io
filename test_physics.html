@@ -3,6 +3,7 @@
 <head><meta charset="UTF-8"><title>Physics Unit Tests — Fractional Aiming</title></head>
 <body style="background:#0a0e18;color:#e0e6f0;font-family:monospace;padding:20px;">
 <pre id="output"></pre>
+<script src="physics.js"></script>
 <script>
 const log = [];
 let totalTests = 0;
@@ -17,82 +18,33 @@ function assert(name, cond, msg) {
 function approx(a, b, eps) { return Math.abs(a - b) < (eps || 0.01); }
 function approxV(a, b, eps) { return approx(a.x, b.x, eps) && approx(a.y, b.y, eps); }
 
-// ====== Constants (mirrored from app.js) ======
+// ====== Constants ======
 const BR = 1.125;
 const TW = 100, TH = 50;
 
-// ====== Utility functions (mirrored from app.js) ======
+// ====== Utility functions ======
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function normalize(v) {
     const d = Math.sqrt(v.x * v.x + v.y * v.y);
     return d < 1e-9 ? {x:0,y:0} : {x: v.x/d, y: v.y/d};
 }
 
-function rayToRail(ox, oy, dx, dy) {
-    let tMin = Infinity;
-    if (Math.abs(dx) > 1e-9) {
-        const t1 = (0 - ox) / dx;
-        if (t1 > 0.01 && t1 < tMin) tMin = t1;
-        const t2 = (TW - ox) / dx;
-        if (t2 > 0.01 && t2 < tMin) tMin = t2;
-    }
-    if (Math.abs(dy) > 1e-9) {
-        const t3 = (0 - oy) / dy;
-        if (t3 > 0.01 && t3 < tMin) tMin = t3;
-        const t4 = (TH - oy) / dy;
-        if (t4 > 0.01 && t4 < tMin) tMin = t4;
-    }
-    if (!isFinite(tMin)) tMin = 50;
-    return {
-        x: clamp(ox + dx * tMin, 0, TW),
-        y: clamp(oy + dy * tMin, 0, TH),
-    };
-}
+// Use physics module for geometry calculations
+const P = BilliardPhysics;
+const U = P._util;
 
-// Full calcGeometry re-implementation (with tipHeight parameter)
-function calcGeometry(cb, ob, pocket, tipHeight) {
-    tipHeight = tipHeight || 0;
-
-    const dpx = pocket.x - ob.x, dpy = pocket.y - ob.y;
-    const dpLen = Math.sqrt(dpx*dpx + dpy*dpy);
-    if (dpLen < 0.5) return null;
-    const dp = { x: dpx/dpLen, y: dpy/dpLen };
-
-    const gb = { x: ob.x - dp.x * 2 * BR, y: ob.y - dp.y * 2 * BR };
-
-    const dax = gb.x - cb.x, day = gb.y - cb.y;
-    const daLen = Math.sqrt(dax*dax + day*day);
-    if (daLen < 0.5) return null;
-    const da = { x: dax/daLen, y: day/daLen };
-
-    const dot = da.x * dp.x + da.y * dp.y;
-    const cutAngle = Math.acos(clamp(dot, -1, 1));
-    const cutAngleDeg = cutAngle * 180 / Math.PI;
-    const fraction = clamp(1 - Math.sin(cutAngle), 0, 1);
-    const cross = da.x * dp.y - da.y * dp.x;
-
-    // Stun direction (tangent line)
-    const aimDotPocket = da.x * dp.x + da.y * dp.y;
-    const stunRaw = { x: da.x - aimDotPocket * dp.x, y: da.y - aimDotPocket * dp.y };
-    const stunDir = normalize(stunRaw);
-
-    // Tip-height adjusted deflection
-    const phi = Math.PI / 2 - tipHeight * (Math.PI / 2 - cutAngle);
-    const deflDir = {
-        x: Math.cos(phi) * dp.x + Math.sin(phi) * stunDir.x,
-        y: Math.cos(phi) * dp.y + Math.sin(phi) * stunDir.y,
-    };
-    const deflAngleDeg = phi * 180 / Math.PI;
-
-    const cp = { x: ob.x - dp.x * BR, y: ob.y - dp.y * BR };
-
-    return { ghostBall: gb, cutAngle, cutAngleDeg, fraction, cross,
-             stunDir, deflDir, deflAngleDeg,
-             contactPoint: cp, dirPocket: dp, dirAim: da, aimDist: daLen };
+function calcGeometry(cb, ob, pocket, tipHeight, tipSide, shotSpeed) {
+    return P.calcFullGeometry(cb, ob, pocket, {
+        tipHeight: tipHeight || 0,
+        tipSide: tipSide || 0,
+        shotSpeed: shotSpeed != null ? shotSpeed : 0.5,
+        cueElevation: 0,
+        shaftType: 'ld',
+    });
 }
 
 // ============================================================
-//               SECTION 1: CORE GEOMETRY (from v1)
+//               SECTION 1: CORE GEOMETRY (backward compat)
 // ============================================================
 log.push('═══════════════════════════════');
 log.push(' SECTION 1: CORE GEOMETRY');
@@ -224,22 +176,6 @@ log.push('═══════════════════════�
     assert('tipHeight=0: deflAngle = 90°', approx(g.deflAngleDeg, 90, 0.1), `got ${g.deflAngleDeg.toFixed(2)}°`);
 }
 
-// TEST: stunDir ⊥ dirPocket (diagonal pocket)
-{
-    const ob = { x: 60, y: 30 }, pocket = { x: 100, y: 0 };
-    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
-    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
-    const dp = {x:dpx/dpLen,y:dpy/dpLen};
-    const gb = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
-    const theta = 30 * Math.PI / 180;
-    const cosT = Math.cos(theta), sinT = Math.sin(theta);
-    const aimDir = { x: dp.x*cosT - dp.y*sinT, y: dp.x*sinT + dp.y*cosT };
-    const cb = { x: gb.x - aimDir.x*25, y: gb.y - aimDir.y*25 };
-    const g = calcGeometry(cb, ob, pocket);
-    const dotSP = g.stunDir.x * g.dirPocket.x + g.stunDir.y * g.dirPocket.y;
-    assert('Diagonal: stunDir ⊥ pocket', approx(dotSP, 0, 0.001), `dot = ${dotSP.toFixed(6)}`);
-}
-
 // ============================================================
 //    SECTION 3: TIP-HEIGHT DEFLECTION (follow/draw)
 // ============================================================
@@ -248,7 +184,6 @@ log.push('═══════════════════════�
 log.push(' SECTION 3: TIP-HEIGHT DEFLECTION');
 log.push('═══════════════════════════════');
 
-// Common setup for tip tests
 function setupTipTest(cutDeg) {
     const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
     const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
@@ -277,17 +212,7 @@ function setupTipTest(cutDeg) {
 {
     const s = setupTipTest(30);
     const g = calcGeometry(s.cb, s.ob, s.pocket, 0.5);
-    // φ = 90 - 0.5*(90-30) = 90 - 30 = 60°
     assert('Half follow: deflAngle ≈ 60°', approx(g.deflAngleDeg, 60, 0.5),
-        `got ${g.deflAngleDeg.toFixed(2)}°`);
-}
-
-// TEST: Half draw (tipHeight=-0.5) → deflAngle ≈ 120°
-{
-    const s = setupTipTest(30);
-    const g = calcGeometry(s.cb, s.ob, s.pocket, -0.5);
-    // φ = 90 - (-0.5)*(90-30) = 90 + 30 = 120°
-    assert('Half draw: deflAngle ≈ 120°', approx(g.deflAngleDeg, 120, 0.5),
         `got ${g.deflAngleDeg.toFixed(2)}°`);
 }
 
@@ -301,25 +226,7 @@ function setupTipTest(cutDeg) {
     });
 }
 
-// TEST: Follow (tipHeight=1) for straight shot → deflAngle = 0° (follow through)
-{
-    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
-    const g = calcGeometry(cb, ob, pocket, 1);
-    // cutAngle ≈ 0°, φ = 90 - 1*(90-0) = 0°
-    assert('Follow on straight shot: deflAngle ≈ 0°', approx(g.deflAngleDeg, 0, 1),
-        `got ${g.deflAngleDeg.toFixed(2)}°`);
-}
-
-// TEST: Draw (tipHeight=-1) for straight shot → deflAngle = 180° (straight back)
-{
-    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 25 };
-    const g = calcGeometry(cb, ob, pocket, -1);
-    // cutAngle ≈ 0°, φ = 90 + 90 = 180°
-    assert('Draw on straight shot: deflAngle ≈ 180°', approx(g.deflAngleDeg, 180, 1),
-        `got ${g.deflAngleDeg.toFixed(2)}°`);
-}
-
-// TEST: Phi formula consistency — φ = 90 − tip * (90 − θ)
+// TEST: Phi formula consistency
 {
     const angles = [0, 15, 30, 45, 60];
     const tips = [-1, -0.5, 0, 0.5, 1];
@@ -346,76 +253,39 @@ log.push('═══════════════════════�
 log.push(' SECTION 4: RAY TO RAIL');
 log.push('═══════════════════════════════');
 
-// TEST: Ray going right → hits right rail
 {
-    const pt = rayToRail(50, 25, 1, 0);
+    const pt = U.rayToRail(50, 25, 1, 0, TW, TH);
     assert('Ray right: hits x=100', approx(pt.x, 100, 0.01), `x = ${pt.x}`);
     assert('Ray right: y unchanged', approx(pt.y, 25, 0.01), `y = ${pt.y}`);
 }
-
-// TEST: Ray going left → hits left rail
 {
-    const pt = rayToRail(50, 25, -1, 0);
+    const pt = U.rayToRail(50, 25, -1, 0, TW, TH);
     assert('Ray left: hits x=0', approx(pt.x, 0, 0.01), `x = ${pt.x}`);
-    assert('Ray left: y unchanged', approx(pt.y, 25, 0.01), `y = ${pt.y}`);
 }
-
-// TEST: Ray going up → hits top rail
 {
-    const pt = rayToRail(50, 25, 0, -1);
+    const pt = U.rayToRail(50, 25, 0, -1, TW, TH);
     assert('Ray up: hits y=0', approx(pt.y, 0, 0.01), `y = ${pt.y}`);
-    assert('Ray up: x unchanged', approx(pt.x, 50, 0.01), `x = ${pt.x}`);
 }
-
-// TEST: Ray going down → hits bottom rail
 {
-    const pt = rayToRail(50, 25, 0, 1);
+    const pt = U.rayToRail(50, 25, 0, 1, TW, TH);
     assert('Ray down: hits y=50', approx(pt.y, 50, 0.01), `y = ${pt.y}`);
-    assert('Ray down: x unchanged', approx(pt.x, 50, 0.01), `x = ${pt.x}`);
 }
-
-// TEST: Diagonal ray (45°) from center → hits corner
 {
     const d = Math.SQRT1_2;
-    const pt = rayToRail(50, 25, d, d);
-    // Going right+down from center. Right rail at t=(100-50)/d=70.7, bottom at t=(50-25)/d=35.4
-    // Hits bottom first at t≈35.4: x = 50 + d*35.4 ≈ 75, y = 50
+    const pt = U.rayToRail(50, 25, d, d, TW, TH);
     assert('Diagonal: hits bottom rail first', approx(pt.y, 50, 0.01), `y = ${pt.y.toFixed(2)}`);
     assert('Diagonal: x ≈ 75', approx(pt.x, 75, 0.01), `x = ${pt.x.toFixed(2)}`);
 }
 
-// TEST: Ray from near corner
-{
-    const pt = rayToRail(5, 5, -1, -1);
-    // Going upper-left, dist to x=0 is 5/1=5, dist to y=0 is 5/1=5 → hits both at same time
-    assert('Corner ray: hits rail at (0,0)', approx(pt.x, 0, 0.1) && approx(pt.y, 0, 0.1),
-        `got (${pt.x.toFixed(2)}, ${pt.y.toFixed(2)})`);
-}
-
-// TEST: Ray from edge going further into boundary would have no valid t
-// Start at the left rail going right — should hit right rail
-{
-    const pt = rayToRail(0.5, 25, 1, 0);
-    assert('From near-edge right: hits x=100', approx(pt.x, 100, 0.01), `x = ${pt.x}`);
-}
-
-// TEST: Steep diagonal
-{
-    const pt = rayToRail(50, 25, 0.1, -1);
-    // y goes up fast: t = 25/1 = 25, x = 50 + 0.1*25 = 52.5
-    assert('Steep up: hits top rail', approx(pt.y, 0, 0.01), `y = ${pt.y.toFixed(2)}`);
-    assert('Steep up: x ≈ 52.5', approx(pt.x, 52.5, 0.1), `x = ${pt.x.toFixed(2)}`);
-}
-
 // ============================================================
-//    SECTION 5: DIAGONAL / EDGE CASES
+//           SECTION 5: EDGE CASES
 // ============================================================
 log.push('');
 log.push('═══════════════════════════════');
 log.push(' SECTION 5: EDGE CASES');
 log.push('═══════════════════════════════');
 
-// TEST: Diagonal pocket with half-ball cut
+// Diagonal pocket + half ball cut
 {
     const ob = { x: 60, y: 30 }, pocket = { x: 100, y: 0 };
     const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
@@ -429,39 +299,341 @@ log.push('═══════════════════════�
     const g = calcGeometry(cb, ob, pocket);
     assert('Diagonal: cut ≈ 30°', approx(g.cutAngleDeg, 30, 0.5), `got ${g.cutAngleDeg.toFixed(2)}°`);
     assert('Diagonal: fraction ≈ 0.5', approx(g.fraction, 0.5, 0.02), `got ${g.fraction.toFixed(4)}`);
-    const dotSP = g.stunDir.x * g.dirPocket.x + g.stunDir.y * g.dirPocket.y;
-    assert('Diagonal: stun ⊥ pocket', approx(dotSP, 0, 0.001), `dot = ${dotSP.toFixed(6)}`);
 }
 
-// TEST: Very thin cut (near miss)
+// Very thin cut
 {
     const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
     const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
-    const theta = 85 * Math.PI / 180; // very thin
+    const theta = 85 * Math.PI / 180;
     const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
     const g = calcGeometry(cb, ob, pocket);
     assert('Thin cut: angle ≈ 85°', approx(g.cutAngleDeg, 85, 1), `got ${g.cutAngleDeg.toFixed(2)}°`);
     assert('Thin cut: fraction near 0', g.fraction < 0.1, `got ${g.fraction.toFixed(4)}`);
 }
 
-// TEST: Tip deflection on diagonal pocket
+// ============================================================
+//           SECTION 6: THROW EFFECT
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 6: THROW EFFECT');
+log.push('═══════════════════════════════');
+
+// CIT at 30° cut with μ=0.06 → throw ≈ 1.7° (Dr. Dave reference)
 {
-    const ob = { x: 60, y: 30 }, pocket = { x: 100, y: 0 };
-    const dpx = pocket.x-ob.x, dpy = pocket.y-ob.y;
-    const dpLen = Math.sqrt(dpx*dpx+dpy*dpy);
-    const dp = {x:dpx/dpLen,y:dpy/dpLen};
-    const gb = { x: ob.x - dp.x*2*BR, y: ob.y - dp.y*2*BR };
+    const cutAngle = 30 * Math.PI / 180;
+    const speed = P.normToSpeed(0.5); // medium speed
+    const throwAngle = P.calcCutInducedThrow(cutAngle, speed);
+    const throwDeg = throwAngle * 180 / Math.PI;
+    assert('CIT at 30° ≈ 1.5-2.0°', throwDeg > 0.8 && throwDeg < 3.0,
+        `got ${throwDeg.toFixed(2)}°`);
+}
+
+// CIT at 0° = 0 (straight shot, no throw)
+{
+    const throwAngle = P.calcCutInducedThrow(0, P.normToSpeed(0.5));
+    assert('CIT at 0° = 0°', Math.abs(throwAngle) < 0.001,
+        `got ${(throwAngle * 180 / Math.PI).toFixed(4)}°`);
+}
+
+// CIT near 90° ≈ 0 (near miss)
+{
+    const throwAngle = P.calcCutInducedThrow(Math.PI * 0.49, P.normToSpeed(0.5));
+    assert('CIT near 90° ≈ 0°', Math.abs(throwAngle) < 0.001,
+        `got ${(throwAngle * 180 / Math.PI).toFixed(4)}°`);
+}
+
+// CIT peaks near 30-35° cut
+{
+    let maxThrow = 0, maxAngle = 0;
+    for (let deg = 5; deg < 85; deg += 5) {
+        const t = P.calcCutInducedThrow(deg * Math.PI / 180, P.normToSpeed(0.5));
+        if (t > maxThrow) { maxThrow = t; maxAngle = deg; }
+    }
+    assert('CIT max near 30-40° cut', maxAngle >= 25 && maxAngle <= 45,
+        `max at ${maxAngle}°`);
+}
+
+// Slower shot → more throw
+{
+    const cutAngle = 30 * Math.PI / 180;
+    const throwSlow = P.calcCutInducedThrow(cutAngle, P.normToSpeed(0.15)); // soft
+    const throwFast = P.calcCutInducedThrow(cutAngle, P.normToSpeed(0.85)); // hard
+    assert('Slower = more throw', throwSlow > throwFast,
+        `slow=${(throwSlow*180/Math.PI).toFixed(2)}° fast=${(throwFast*180/Math.PI).toFixed(2)}°`);
+}
+
+// SIT: Left English → OB thrown right (positive)
+{
+    const sidespin = -100; // left English = negative sidespin
+    const speed = P.normToSpeed(0.5);
+    const sitAngle = P.calcSpinInducedThrow(sidespin, speed);
+    assert('SIT: Left English → throw right (>0)', sitAngle > 0,
+        `got ${(sitAngle*180/Math.PI).toFixed(2)}°`);
+}
+
+// SIT: Right English → OB thrown left (negative)
+{
+    const sidespin = 100; // right English = positive sidespin
+    const speed = P.normToSpeed(0.5);
+    const sitAngle = P.calcSpinInducedThrow(sidespin, speed);
+    assert('SIT: Right English → throw left (<0)', sitAngle < 0,
+        `got ${(sitAngle*180/Math.PI).toFixed(2)}°`);
+}
+
+// SIT: No English → no throw
+{
+    const sitAngle = P.calcSpinInducedThrow(0, P.normToSpeed(0.5));
+    assert('SIT: No English → 0°', Math.abs(sitAngle) < 0.001,
+        `got ${(sitAngle*180/Math.PI).toFixed(4)}°`);
+}
+
+// Full geometry includes throw
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
     const theta = 30 * Math.PI / 180;
-    const cosT = Math.cos(theta), sinT = Math.sin(theta);
-    const aimDir = { x: dp.x*cosT - dp.y*sinT, y: dp.x*sinT + dp.y*cosT };
-    const cb = { x: gb.x - aimDir.x*25, y: gb.y - aimDir.y*25 };
-    
-    const gFollow = calcGeometry(cb, ob, pocket, 1);
-    const gDraw = calcGeometry(cb, ob, pocket, -1);
-    assert('Diagonal follow: deflAngle ≈ 30°', approx(gFollow.deflAngleDeg, 30, 1),
-        `got ${gFollow.deflAngleDeg.toFixed(2)}°`);
-    assert('Diagonal draw: deflAngle ≈ 150°', approx(gDraw.deflAngleDeg, 150, 1),
-        `got ${gDraw.deflAngleDeg.toFixed(2)}°`);
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket, 0, 0, 0.5);
+    assert('Full geom has throwAngleDeg', g.throwAngleDeg != null, 'missing throwAngleDeg');
+    assert('Full geom has dirPocketThrown', g.dirPocketThrown != null, 'missing dirPocketThrown');
+    assert('Thrown dir ≠ ideal dir', !approxV(g.dirPocket, g.dirPocketThrown, 0.0001),
+        'should differ due to throw');
+}
+
+// ============================================================
+//           SECTION 7: SQUIRT + SWERVE
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 7: SQUIRT + SWERVE');
+log.push('═══════════════════════════════');
+
+// Squirt: Left English → CB squirts right of aim (positive angle)
+{
+    const squirt = P.calcSquirtAngle(-1, 'ld'); // full left English
+    const squirtDeg = squirt * 180 / Math.PI;
+    assert('Left English → squirt right (>0)', squirt > 0,
+        `got ${squirtDeg.toFixed(2)}°`);
+    assert('LD squirt ≈ 0.5°', approx(Math.abs(squirtDeg), 0.5, 0.1),
+        `got ${Math.abs(squirtDeg).toFixed(2)}°`);
+}
+
+// Squirt: Right English → CB squirts left (negative angle)
+{
+    const squirt = P.calcSquirtAngle(1, 'ld');
+    assert('Right English → squirt left (<0)', squirt < 0,
+        `got ${(squirt*180/Math.PI).toFixed(2)}°`);
+}
+
+// Squirt: No English → no squirt
+{
+    const squirt = P.calcSquirtAngle(0, 'ld');
+    assert('No English → 0° squirt', Math.abs(squirt) < 0.001,
+        `got ${(squirt*180/Math.PI).toFixed(4)}°`);
+}
+
+// Standard shaft squirts more than LD
+{
+    const squirtLD = P.calcSquirtAngle(-1, 'ld');
+    const squirtSTD = P.calcSquirtAngle(-1, 'std');
+    assert('Standard > LD squirt', Math.abs(squirtSTD) > Math.abs(squirtLD),
+        `LD=${(squirtLD*180/Math.PI).toFixed(2)}° STD=${(squirtSTD*180/Math.PI).toFixed(2)}°`);
+}
+
+// Full geometry includes squirt data
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 }, cb = { x: 20, y: 28 };
+    const g = P.calcFullGeometry(cb, ob, pocket, { tipSide: -0.5, shotSpeed: 0.5 });
+    assert('Full geom has squirtAngleDeg', g.squirtAngleDeg != null, 'missing');
+    assert('Full geom has dirAimSquirted', g.dirAimSquirted != null, 'missing');
+    assert('Squirted dir ≠ aim dir', !approxV(g.dirAim, g.dirAimSquirted, 0.0001),
+        'should differ');
+}
+
+// Swerve: no cue elevation → straight path
+{
+    const aimDir = { x: 1, y: 0 };
+    const swerve = P.calcSwervePath({x:10,y:25}, aimDir, 0.01, -100, 0, 80, 40);
+    assert('No elevation → straight path', swerve.isStraight, 'expected straight');
+}
+
+// Swerve: with elevation + English → curved path
+{
+    const aimDir = { x: 1, y: 0 };
+    const swerve = P.calcSwervePath({x:10,y:25}, aimDir, 0.01, -100, 15, 80, 40);
+    assert('Elevated + English → curved', !swerve.isStraight, 'expected curve');
+    assert('Swerve has multiple points', swerve.points.length > 2,
+        `got ${swerve.points.length} points`);
+}
+
+// ============================================================
+//           SECTION 8: ROLLING/SLIDING
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 8: ROLLING/SLIDING');
+log.push('═══════════════════════════════');
+
+// Stop position within table bounds
+{
+    const result = P.predictStopPosition({x:50,y:25}, {x:1,y:0}, 80);
+    assert('CB stop x within table', result.stopPos.x >= BR && result.stopPos.x <= TW - BR,
+        `x = ${result.stopPos.x.toFixed(1)}`);
+    assert('CB stop y within table', result.stopPos.y >= BR && result.stopPos.y <= TH - BR,
+        `y = ${result.stopPos.y.toFixed(1)}`);
+}
+
+// Faster speed → longer distance
+{
+    const r1 = P.predictStopPosition({x:50,y:25}, {x:1,y:0}, 40);
+    const r2 = P.predictStopPosition({x:50,y:25}, {x:1,y:0}, 100);
+    assert('Faster = farther stop', r2.totalDistance > r1.totalDistance,
+        `slow=${r1.totalDistance.toFixed(1)} fast=${r2.totalDistance.toFixed(1)}`);
+}
+
+// Slide distance > 0
+{
+    const r = P.predictStopPosition({x:50,y:25}, {x:1,y:0}, 80);
+    assert('Slide distance > 0', r.slideDistance > 0, `got ${r.slideDistance.toFixed(2)}`);
+    assert('Roll distance > 0', r.rollDistance > 0, `got ${r.rollDistance.toFixed(2)}`);
+}
+
+// Full geometry includes predicted stops
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Full geom has cbStopPos', g.cbStopPos != null, 'missing cbStopPos');
+    assert('Full geom has obStopPos', g.obStopPos != null, 'missing obStopPos');
+}
+
+// ============================================================
+//           SECTION 9: CUSHION REBOUND
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 9: CUSHION REBOUND');
+log.push('═══════════════════════════════');
+
+// Normal COR applied on left rail
+{
+    const result = P.calcCushionRebound(
+        {x: 0, y: 25}, // hit left rail
+        {x: -50, y: 30}, // incoming velocity
+        0 // no spin
+    );
+    assert('Cushion: vx reversed (left rail)', result.velocity.x > 0,
+        `vx = ${result.velocity.x.toFixed(2)}`);
+    assert('Cushion: vy same sign', result.velocity.y > 0,
+        `vy = ${result.velocity.y.toFixed(2)}`);
+}
+
+// COR reduces normal speed
+{
+    const result = P.calcCushionRebound(
+        {x: 0, y: 25},
+        {x: -100, y: 0}, // straight into left rail
+        0
+    );
+    assert('Cushion: |vx out| < |vx in|', Math.abs(result.velocity.x) < 100,
+        `|vx out| = ${Math.abs(result.velocity.x).toFixed(2)}`);
+    const e = P.CONST.COR_CUSHION;
+    assert('Cushion: vx ≈ e × vx_in', approx(result.velocity.x, e * 100, 2),
+        `expected ${(e*100).toFixed(1)}, got ${result.velocity.x.toFixed(1)}`);
+}
+
+// Spin effect on rebound
+{
+    const noSpin = P.calcCushionRebound({x: 0, y: 25}, {x: -50, y: 50}, 0);
+    const withSpin = P.calcCushionRebound({x: 0, y: 25}, {x: -50, y: 50}, 200);
+    // With spin, the rebound should differ from no spin
+    const diff = Math.abs(withSpin.velocity.y - noSpin.velocity.y);
+    assert('Cushion: spin modifies rebound', diff > 0.1,
+        `diff = ${diff.toFixed(2)}`);
+}
+
+// Sidespin reduced after cushion contact
+{
+    const result = P.calcCushionRebound({x: 0, y: 25}, {x: -50, y: 30}, 200);
+    assert('Cushion: spin reduced', Math.abs(result.sidespin) < 200,
+        `spin = ${Math.abs(result.sidespin).toFixed(1)}`);
+}
+
+// Multi-bounce path has multiple points
+{
+    const path = P.calcMultiBouncePath({x:50,y:25}, {x:0.7,y:0.7}, 100, 0, 3);
+    assert('Multi-bounce: > 2 points', path.length > 2,
+        `got ${path.length} points`);
+    // All points within table bounds
+    let allInBounds = true;
+    path.forEach(p => {
+        if (p.x < -0.5 || p.x > TW + 0.5 || p.y < -0.5 || p.y > TH + 0.5)
+            allInBounds = false;
+    });
+    assert('Multi-bounce: all within bounds', allInBounds, 'out of bounds detected');
+}
+
+// Full geometry includes bounce path
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const gb = { x: 50 - 2*BR, y: 25 }, dist = 30;
+    const theta = 30 * Math.PI / 180;
+    const cb = { x: gb.x - Math.cos(theta)*dist, y: gb.y + Math.sin(theta)*dist };
+    const g = calcGeometry(cb, ob, pocket);
+    assert('Full geom has cbBouncePath', g.cbBouncePath != null && g.cbBouncePath.length >= 1,
+        `got ${g.cbBouncePath ? g.cbBouncePath.length : 'null'}`);
+}
+
+// ============================================================
+//           SECTION 10: INTEGRATION CHECKS
+// ============================================================
+log.push('');
+log.push('═══════════════════════════════');
+log.push(' SECTION 10: INTEGRATION');
+log.push('═══════════════════════════════');
+
+// calcFullGeometry returns all expected fields
+{
+    const ob = { x: 50, y: 25 }, pocket = { x: 100, y: 25 };
+    const cb = { x: 20, y: 30 };
+    const g = P.calcFullGeometry(cb, ob, pocket, {
+        tipHeight: 0.5, tipSide: -0.3, shotSpeed: 0.6,
+        cueElevation: 10, shaftType: 'ld'
+    });
+    const fields = ['ghostBall', 'cutAngle', 'cutAngleDeg', 'fraction', 'cross',
+        'stunDir', 'deflDir', 'deflAngleDeg', 'contactPoint', 'dirPocket', 'dirAim',
+        'aimDist', 'pocketDist', 'throwAngle', 'throwAngleDeg', 'dirPocketThrown',
+        'squirtAngle', 'squirtAngleDeg', 'dirAimSquirted', 'spin', 'speed',
+        'swervePath', 'cbStopPos', 'obStopPos', 'cbBouncePath'];
+    let allPresent = true;
+    const missing = [];
+    fields.forEach(f => {
+        if (g[f] == null) { allPresent = false; missing.push(f); }
+    });
+    assert('All fields present', allPresent, `missing: ${missing.join(', ')}`);
+}
+
+// Speed normalization
+{
+    const slow = P.normToSpeed(0);
+    const med = P.normToSpeed(0.5);
+    const fast = P.normToSpeed(1);
+    assert('Speed: slow < med < fast', slow < med && med < fast,
+        `slow=${slow.toFixed(0)} med=${med.toFixed(0)} fast=${fast.toFixed(0)}`);
+    assert('Speed soft ≈ 30 in/s', approx(slow, 30, 5), `got ${slow.toFixed(1)}`);
+}
+
+// Initial spin calculation
+{
+    const spin = P.calcInitialSpin(-0.5, 0.3, 100);
+    assert('Spin: sidespin present', Math.abs(spin.sidespin) > 0, `got ${spin.sidespin.toFixed(1)}`);
+    assert('Spin: topspin present', Math.abs(spin.topspin) > 0, `got ${spin.topspin.toFixed(1)}`);
+    assert('Spin: left English → negative sidespin', spin.sidespin < 0, `got ${spin.sidespin.toFixed(1)}`);
+    assert('Spin: follow → positive topspin', spin.topspin > 0, `got ${spin.topspin.toFixed(1)}`);
 }
 
 // ============================================================

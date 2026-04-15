@@ -78,6 +78,16 @@
                   <div class="info-value" id="info-angle">30.0°</div>
                   <div class="info-sub" id="info-cut-dir">&nbsp;</div>
                 </div>
+                <div class="info-item">
+                  <div class="info-label">Throw</div>
+                  <div class="info-value" id="info-throw">0.0°</div>
+                  <div class="info-sub" id="info-throw-detail">&nbsp;</div>
+                </div>
+                <div class="info-item">
+                  <div class="info-label">Squirt</div>
+                  <div class="info-value" id="info-squirt">0.0°</div>
+                  <div class="info-sub" id="info-squirt-detail">&nbsp;</div>
+                </div>
               </div>
 
               <!-- Fraction Presets -->
@@ -187,6 +197,108 @@
                 </div>
               </div>
 
+              <!-- Sidespin (English) -->
+              <div class="config-section">
+                <div class="section-label">English (Sidespin)</div>
+                <div class="preset-buttons" id="english-buttons">
+                  <button class="preset-btn eng-btn" data-eng="-1" id="eng-left">
+                    <span class="preset-name">◀ Trái</span>
+                    <span class="preset-angle">Full</span>
+                  </button>
+                  <button class="preset-btn eng-btn" data-eng="-0.5" id="eng-halfleft">
+                    <span class="preset-name">◁ Nửa</span>
+                    <span class="preset-angle">Half</span>
+                  </button>
+                  <button class="preset-btn eng-btn active" data-eng="0" id="eng-center">
+                    <span class="preset-name">Giữa</span>
+                    <span class="preset-angle">None</span>
+                  </button>
+                  <button class="preset-btn eng-btn" data-eng="0.5" id="eng-halfright">
+                    <span class="preset-name">Nửa ▷</span>
+                    <span class="preset-angle">Half</span>
+                  </button>
+                  <button class="preset-btn eng-btn" data-eng="1" id="eng-right">
+                    <span class="preset-name">Phải ▶</span>
+                    <span class="preset-angle">Full</span>
+                  </button>
+                </div>
+                <div class="slider-container">
+                  <span class="slider-min">◀ Left</span>
+                  <input
+                    type="range"
+                    id="english-slider"
+                    min="-100"
+                    max="100"
+                    value="0"
+                    step="1"
+                  />
+                  <span class="slider-max">Right ▶</span>
+                </div>
+              </div>
+
+              <!-- Shot Speed -->
+              <div class="config-section">
+                <div class="section-label">Tốc độ đánh (Shot Speed)</div>
+                <div class="preset-buttons" id="speed-buttons">
+                  <button class="preset-btn speed-btn" data-speed="0.15" id="speed-soft">
+                    <span class="preset-name">Nhẹ</span>
+                    <span class="preset-angle">Soft</span>
+                  </button>
+                  <button class="preset-btn speed-btn active" data-speed="0.5" id="speed-med">
+                    <span class="preset-name">Vừa</span>
+                    <span class="preset-angle">Medium</span>
+                  </button>
+                  <button class="preset-btn speed-btn" data-speed="0.85" id="speed-hard">
+                    <span class="preset-name">Mạnh</span>
+                    <span class="preset-angle">Hard</span>
+                  </button>
+                </div>
+                <div class="slider-container">
+                  <span class="slider-min">Soft</span>
+                  <input
+                    type="range"
+                    id="speed-slider"
+                    min="0"
+                    max="100"
+                    value="50"
+                    step="1"
+                  />
+                  <span class="slider-max">Hard</span>
+                </div>
+              </div>
+
+              <!-- Cue Elevation -->
+              <div class="config-section">
+                <div class="section-label">Độ nghiêng cơ (Cue Elevation)</div>
+                <div class="slider-container">
+                  <span class="slider-min">0° Phẳng</span>
+                  <input
+                    type="range"
+                    id="elevation-slider"
+                    min="0"
+                    max="30"
+                    value="0"
+                    step="1"
+                  />
+                  <span class="slider-max">30°</span>
+                </div>
+              </div>
+
+              <!-- Shaft Type -->
+              <div class="config-section">
+                <div class="section-label">Loại cơ (Shaft Type)</div>
+                <div class="preset-buttons" id="shaft-buttons">
+                  <button class="preset-btn shaft-btn active" data-shaft="ld" id="shaft-ld">
+                    <span class="preset-name">Low Defl.</span>
+                    <span class="preset-angle">Ít lệch</span>
+                  </button>
+                  <button class="preset-btn shaft-btn" data-shaft="std" id="shaft-std">
+                    <span class="preset-name">Standard</span>
+                    <span class="preset-angle">Lệch nhiều</span>
+                  </button>
+                </div>
+              </div>
+
               <!-- Display Toggles -->
               <div class="config-section">
                 <div class="section-label">Hiển thị</div>
@@ -286,6 +398,58 @@
                       <span class="toggle-track"></span>
                     </span>
                   </label>
+                  <label class="toggle-row" for="toggle-throwEffect">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #ff6b35"
+                      ></span>
+                      Throw Effect (Lệch bi)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-throwEffect" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-swervePath">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #a855f7"
+                      ></span>
+                      Swerve (Cong đường đi)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-swervePath" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-predictedStop">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: #22d3ee"
+                      ></span>
+                      Vị trí dừng (Predicted Stop)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-predictedStop" checked />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-row" for="toggle-bouncePath">
+                    <span class="toggle-label">
+                      <span
+                        class="color-dot"
+                        style="background: rgba(255, 77, 166, 0.5)"
+                      ></span>
+                      Multi-bounce (Nhiều băng)
+                    </span>
+                    <span class="toggle-switch">
+                      <input type="checkbox" id="toggle-bouncePath" />
+                      <span class="toggle-track"></span>
+                    </span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -294,6 +458,7 @@
       </main>
     </div>
 
+    <script src="physics.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

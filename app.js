@@ -68,6 +68,12 @@
     ghostBallStroke: "rgba(255,255,255,0.55)",
     cutAngle: "#ff8c00",
     contactPoint: "#ff3333",
+    // New physics colors
+    throwPath: "#ff6b35",        // thrown OB path (orange)
+    squirtLine: "#e879f9",       // squirt-adjusted aim (purple/pink)
+    swervePath: "#a855f7",       // swerve curve (purple)
+    predictedStop: "#22d3ee",    // predicted stop position (cyan)
+    bouncePath: "rgba(255,77,166,0.5)", // multi-bounce path
     // Aramith Tournament Black balls
     cueBall: "#fffff5", // ivory white
     cueShadow: "#c8c8b8",
@@ -102,8 +108,16 @@
       cutAngle: true,
       contactPoint: false,
       diamondGrid: true,
+      throwEffect: true,
+      swervePath: true,
+      predictedStop: true,
+      bouncePath: false,
     },
     tipHeight: 0, // -1 (draw/low) to 0 (stun/center) to +1 (follow/high)
+    tipSide: 0,   // -1 (left English) to +1 (right English)
+    shotSpeed: 0.5, // 0 (soft) to 1 (hard)
+    cueElevation: 0, // 0° to 30°
+    shaftType: "ld", // 'ld' (low-deflection) or 'std'
     dragging: null, // 'cueBall' | 'objectBall' | null
     animTarget: null, // { x, y } or null
     hoverBall: null, // 'cueBall' | 'objectBall' | null
@@ -250,10 +264,12 @@
   }
 
   // ================================================================
-  //  GEOMETRY CALCULATIONS
+  //  GEOMETRY CALCULATIONS  (delegated to physics.js)
   // ================================================================
   /**
-   * Calculate all geometric data for the current state.
+   * Calculate all geometric + physics data for the current state.
+   * Delegates to BilliardPhysics.calcFullGeometry() which includes
+   * throw, squirt, swerve, predicted stop, and multi-bounce paths.
    * Returns null if geometry is degenerate.
    */
   function calcGeometry() {
@@ -261,84 +277,13 @@
     const ob = state.objectBall;
     const pk = POCKETS[state.selectedPocket];
 
-    // OB → pocket direction
-    const dpx = pk.x - ob.x,
-      dpy = pk.y - ob.y;
-    const dpLen = Math.sqrt(dpx * dpx + dpy * dpy);
-    if (dpLen < 0.5) return null;
-    const dp = { x: dpx / dpLen, y: dpy / dpLen };
-
-    // Ghost ball position: OB center − pocketDir × 2×ballRadius
-    const gb = {
-      x: ob.x - dp.x * 2 * BR,
-      y: ob.y - dp.y * 2 * BR,
-    };
-
-    // Aim direction: CB → ghost ball
-    const dax = gb.x - cb.x,
-      day = gb.y - cb.y;
-    const daLen = Math.sqrt(dax * dax + day * day);
-    if (daLen < 0.5) return null;
-    const da = { x: dax / daLen, y: day / daLen };
-
-    // Cut angle  (angle between aim direction and pocket direction)
-    const dot = da.x * dp.x + da.y * dp.y;
-    const cutAngle = Math.acos(clamp(dot, -1, 1));
-    const cutAngleDeg = (cutAngle * 180) / Math.PI;
-
-    // Fraction
-    const fraction = clamp(1 - Math.sin(cutAngle), 0, 1);
-
-    // Cross product → determines cut side
-    const cross = da.x * dp.y - da.y * dp.x;
-
-    // CB deflection direction (tangent line for stun shot).
-    // In a stun shot the OB receives the component of CB velocity along
-    // the line of centers.  The CB retains the perpendicular component.
-    //   stunDir = normalize(dirAim − (dirAim · dirPocket) × dirPocket)
-    const aimDotPocket = da.x * dp.x + da.y * dp.y; // = cos(cutAngle)
-    const stunRaw = {
-      x: da.x - aimDotPocket * dp.x,
-      y: da.y - aimDotPocket * dp.y,
-    };
-    const stunDir = normalize(stunRaw); // pure tangent line (stun, center hit)
-
-    // Tip-height-adjusted deflection (tangent line principle).
-    //   φ = 90° − tipHeight × (90° − cutAngle)
-    //   deflDir = cos(φ) × dirPocket + sin(φ) × stunDir
-    //
-    // tipHeight: -1 = draw (low), 0 = stun (center), +1 = follow (high)
-    const phi = Math.PI / 2 - state.tipHeight * (Math.PI / 2 - cutAngle);
-    const deflDir = {
-      x: Math.cos(phi) * dp.x + Math.sin(phi) * stunDir.x,
-      y: Math.cos(phi) * dp.y + Math.sin(phi) * stunDir.y,
-    };
-    // deflDir is already unit length (cos²+sin²=1, dp⊥stunDir)
-
-    // Deflection angle from OB path (for display)
-    const deflAngleDeg = (phi * 180) / Math.PI;
-
-    // Contact point (on OB surface, facing the ghost ball)
-    const cp = {
-      x: ob.x - dp.x * BR,
-      y: ob.y - dp.y * BR,
-    };
-
-    return {
-      ghostBall: gb,
-      cutAngle,
-      cutAngleDeg,
-      fraction,
-      cross,
-      stunDir, // tangent line direction (stun/center hit)
-      deflDir, // actual post-collision CB path (based on tipHeight)
-      deflAngleDeg,
-      contactPoint: cp,
-      dirPocket: dp,
-      dirAim: da,
-      aimDist: daLen,
-      pocketDist: dpLen,
-    };
+    return BilliardPhysics.calcFullGeometry(cb, ob, pk, {
+      tipHeight: state.tipHeight,
+      tipSide: state.tipSide,
+      shotSpeed: state.shotSpeed,
+      cueElevation: state.cueElevation,
+      shaftType: state.shaftType,
+    });
   }
 
   // ================================================================
@@ -636,20 +581,56 @@
     const pk = POCKETS[state.selectedPocket];
     const pkp = t2c(pk.x, pk.y);
 
-    // ---- Object ball path (OB → pocket) ----
+    // ---- Object ball path (OB → pocket) — ideal (no throw) ----
     if (state.show.objectPath) {
       ctx.save();
       ctx.shadowColor = COLORS.objectPath;
       ctx.shadowBlur = 6;
       ctx.strokeStyle = COLORS.objectPath;
       ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.8;
+      ctx.globalAlpha = state.show.throwEffect ? 0.3 : 0.8;
+      ctx.setLineDash(state.show.throwEffect ? [4, 4] : []);
       ctx.beginPath();
       ctx.moveTo(obp.x, obp.y);
       ctx.lineTo(pkp.x, pkp.y);
       ctx.stroke();
-      // Arrowhead at pocket
-      drawArrow(ctx, obp, pkp, COLORS.objectPath);
+      ctx.setLineDash([]);
+      if (!state.show.throwEffect) {
+        drawArrow(ctx, obp, pkp, COLORS.objectPath);
+      }
+      ctx.restore();
+    }
+
+    // ---- Throw-adjusted OB path (actual trajectory with friction throw) ----
+    if (state.show.throwEffect && state.show.objectPath && g.dirPocketThrown && Math.abs(g.throwAngleDeg) > 0.05) {
+      const throwRailPt = rayToRail(
+        state.objectBall.x, state.objectBall.y,
+        g.dirPocketThrown.x, g.dirPocketThrown.y
+      );
+      const thrownEndP = t2c(throwRailPt.x, throwRailPt.y);
+
+      ctx.save();
+      ctx.shadowColor = COLORS.throwPath;
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = COLORS.throwPath;
+      ctx.lineWidth = 2.5;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(obp.x, obp.y);
+      ctx.lineTo(thrownEndP.x, thrownEndP.y);
+      ctx.stroke();
+      drawArrow(ctx, obp, thrownEndP, COLORS.throwPath);
+
+      // Throw angle label
+      const throwLabelT = 0.55;
+      const throwLx = obp.x + (thrownEndP.x - obp.x) * throwLabelT;
+      const throwLy = obp.y + (thrownEndP.y - obp.y) * throwLabelT;
+      drawLabel(ctx, `Throw ${g.throwAngleDeg > 0 ? '+' : ''}${g.throwAngleDeg.toFixed(1)}°`, throwLx, throwLy, {
+        font: "bold 10px Inter",
+        color: COLORS.throwPath,
+        alpha: 0.9,
+        align: "center",
+      });
       ctx.restore();
     }
 
@@ -659,14 +640,16 @@
       ctx.shadowColor = COLORS.aimLine;
       ctx.shadowBlur = 6;
 
-      // Main aim line
+      // Main aim line (ideal, no squirt)
       ctx.strokeStyle = COLORS.aimLine;
       ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.85;
+      ctx.globalAlpha = (Math.abs(state.tipSide) > 0.05) ? 0.4 : 0.85;
+      ctx.setLineDash((Math.abs(state.tipSide) > 0.05) ? [4, 4] : []);
       ctx.beginPath();
       ctx.moveTo(cbp.x, cbp.y);
       ctx.lineTo(gbp.x, gbp.y);
       ctx.stroke();
+      ctx.setLineDash([]);
 
       // Extended line behind CB (cue direction)
       ctx.globalAlpha = 0.25;
@@ -686,6 +669,70 @@
       ctx.setLineDash([]);
 
       ctx.restore();
+    }
+
+    // ---- Squirt-adjusted aim line (actual CB path with English) ----
+    if (state.show.aimLine && g.dirAimSquirted && Math.abs(g.squirtAngleDeg) > 0.05) {
+      ctx.save();
+      ctx.shadowColor = COLORS.squirtLine;
+      ctx.shadowBlur = 4;
+      ctx.strokeStyle = COLORS.squirtLine;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.75;
+      const sqExt = g.aimDist * tScale * 1.1;
+      ctx.beginPath();
+      ctx.moveTo(cbp.x, cbp.y);
+      ctx.lineTo(
+        cbp.x + g.dirAimSquirted.x * sqExt,
+        cbp.y + g.dirAimSquirted.y * sqExt
+      );
+      ctx.stroke();
+
+      // Squirt label
+      const sqLabelT = 0.3;
+      drawLabel(ctx, `Squirt ${g.squirtAngleDeg > 0 ? '+' : ''}${g.squirtAngleDeg.toFixed(1)}°`,
+        cbp.x + g.dirAimSquirted.x * sqExt * sqLabelT,
+        cbp.y + g.dirAimSquirted.y * sqExt * sqLabelT, {
+        font: "bold 9px Inter",
+        color: COLORS.squirtLine,
+        alpha: 0.85,
+        align: "center",
+      });
+      ctx.restore();
+    }
+
+    // ---- Swerve path (curved CB path when English + elevated cue) ----
+    if (state.show.swervePath && g.swervePath && !g.swervePath.isStraight) {
+      const pts = g.swervePath.points;
+      if (pts.length > 2) {
+        ctx.save();
+        ctx.shadowColor = COLORS.swervePath;
+        ctx.shadowBlur = 4;
+        ctx.strokeStyle = COLORS.swervePath;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        const p0 = t2c(pts[0].x, pts[0].y);
+        ctx.moveTo(p0.x, p0.y);
+        for (let i = 1; i < pts.length; i++) {
+          const p = t2c(pts[i].x, pts[i].y);
+          ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Label
+        const midIdx = Math.floor(pts.length * 0.4);
+        const midP = t2c(pts[midIdx].x, pts[midIdx].y);
+        drawLabel(ctx, "Swerve", midP.x, midP.y - 10, {
+          font: "bold 9px Inter",
+          color: COLORS.swervePath,
+          alpha: 0.75,
+          align: "center",
+        });
+        ctx.restore();
+      }
     }
 
     // ---- CB deflection path (extended to cushion) ----
@@ -757,6 +804,99 @@
           alpha: 0.85,
           align: "center",
         });
+      }
+      ctx.restore();
+    }
+
+    // ---- Predicted stop positions ----
+    if (state.show.predictedStop && g.cutAngleDeg > 1) {
+      // CB predicted stop
+      if (g.cbStopPos) {
+        const cbStopP = t2c(g.cbStopPos.x, g.cbStopPos.y);
+        ctx.save();
+        ctx.strokeStyle = COLORS.predictedStop;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.6;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(cbStopP.x, cbStopP.y, br * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // ×  marker
+        const m = br * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(cbStopP.x - m, cbStopP.y - m);
+        ctx.lineTo(cbStopP.x + m, cbStopP.y + m);
+        ctx.moveTo(cbStopP.x + m, cbStopP.y - m);
+        ctx.lineTo(cbStopP.x - m, cbStopP.y + m);
+        ctx.stroke();
+        drawLabel(ctx, "CB Stop", cbStopP.x, cbStopP.y - br - 4, {
+          font: "8px Inter",
+          color: COLORS.predictedStop,
+          alpha: 0.65,
+          align: "center",
+          baseline: "bottom",
+        });
+        ctx.restore();
+      }
+
+      // OB predicted stop
+      if (g.obStopPos) {
+        const obStopP = t2c(g.obStopPos.x, g.obStopPos.y);
+        ctx.save();
+        ctx.strokeStyle = COLORS.objectPath;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(obStopP.x, obStopP.y, br * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const m2 = br * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(obStopP.x - m2, obStopP.y - m2);
+        ctx.lineTo(obStopP.x + m2, obStopP.y + m2);
+        ctx.moveTo(obStopP.x + m2, obStopP.y - m2);
+        ctx.lineTo(obStopP.x - m2, obStopP.y + m2);
+        ctx.stroke();
+        drawLabel(ctx, "OB Stop", obStopP.x, obStopP.y - br - 4, {
+          font: "8px Inter",
+          color: COLORS.objectPath,
+          alpha: 0.55,
+          align: "center",
+          baseline: "bottom",
+        });
+        ctx.restore();
+      }
+    }
+
+    // ---- Multi-bounce CB path ----
+    if (state.show.bouncePath && g.cbBouncePath && g.cbBouncePath.length > 1 && g.cutAngleDeg > 1) {
+      ctx.save();
+      ctx.strokeStyle = COLORS.bouncePath;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      // Skip first segment (already drawn as deflection path)
+      for (let i = 1; i < g.cbBouncePath.length; i++) {
+        const p = t2c(g.cbBouncePath[i].x, g.cbBouncePath[i].y);
+        if (i === 1) {
+          ctx.moveTo(p.x, p.y);
+        } else {
+          ctx.lineTo(p.x, p.y);
+        }
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Bounce markers
+      for (let i = 1; i < g.cbBouncePath.length - 1; i++) {
+        const bp = t2c(g.cbBouncePath[i].x, g.cbBouncePath[i].y);
+        ctx.fillStyle = COLORS.bouncePath;
+        ctx.beginPath();
+        ctx.arc(bp.x, bp.y, 3, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.restore();
     }
@@ -1382,34 +1522,54 @@
         }
       }
 
-      // Center line (horizontal)
-      ctx.strokeStyle = "rgba(0,0,0,0.15)";
+      // Crosshair lines (horizontal + vertical)
+      ctx.strokeStyle = "rgba(255,255,255,0.12)";
       ctx.lineWidth = 0.8;
       ctx.beginPath();
-      ctx.moveTo(cbCx - cbR * 0.6, cbCy);
-      ctx.lineTo(cbCx + cbR * 0.6, cbCy);
+      ctx.moveTo(cbCx - cbR * 0.7, cbCy);
+      ctx.lineTo(cbCx + cbR * 0.7, cbCy);
+      ctx.moveTo(cbCx, cbCy - cbR * 0.7);
+      ctx.lineTo(cbCx, cbCy + cbR * 0.7);
       ctx.stroke();
 
-      // Tip contact dot — y offset from center based on tipHeight
-      // tipHeight: +1 = top (follow), -1 = bottom (draw)
+      // Tip contact dot — X offset (English) + Y offset (follow/draw)
+      const tipDotX = cbCx + state.tipSide * cbR * 0.7;
       const tipDotY = cbCy - state.tipHeight * cbR * 0.7;
       const dotR = Math.max(3, cbR * 0.18);
+
+      // Glow for English indicator
+      if (Math.abs(state.tipSide) > 0.05) {
+        ctx.save();
+        ctx.shadowColor = COLORS.squirtLine;
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = COLORS.squirtLine;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.arc(tipDotX, tipDotY, dotR + 2, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       ctx.fillStyle = "#ff3333";
       ctx.beginPath();
-      ctx.arc(cbCx, tipDotY, dotR, 0, Math.PI * 2);
+      ctx.arc(tipDotX, tipDotY, dotR, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = "rgba(255,0,0,0.5)";
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Label
+      // Labels
       ctx.fillStyle = "#a0a8bc";
-      ctx.font = `${Math.max(8, cbR * 0.35)}px Inter`;
+      ctx.font = `${Math.max(8, cbR * 0.32)}px Inter`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       let tipLabel = "Stun";
       if (state.tipHeight > 0.05) tipLabel = "Follow";
       else if (state.tipHeight < -0.05) tipLabel = "Draw";
+      if (Math.abs(state.tipSide) > 0.05) {
+        tipLabel += state.tipSide > 0 ? " + R" : " + L";
+      }
       ctx.fillText(tipLabel, cbCx, cbCy + cbR + 4);
       ctx.textBaseline = "alphabetic";
     }
@@ -1450,12 +1610,32 @@
       dirEl.textContent = geom.cross > 0 ? "◀ Cắt trái" : "Cắt phải ▶";
     }
 
+    // Throw info
+    const throwEl = document.getElementById("info-throw");
+    const throwDetailEl = document.getElementById("info-throw-detail");
+    if (throwEl && geom.throwAngleDeg != null) {
+      throwEl.textContent = Math.abs(geom.throwAngleDeg) < 0.05 ? "0.0°" :
+        (geom.throwAngleDeg > 0 ? "+" : "") + geom.throwAngleDeg.toFixed(1) + "°";
+      const citPart = geom.citAngleDeg ? geom.citAngleDeg.toFixed(1) : "0.0";
+      const sitPart = geom.sitAngleDeg ? Math.abs(geom.sitAngleDeg).toFixed(1) : "0.0";
+      throwDetailEl.textContent = `CIT ${citPart}° + SIT ${sitPart}°`;
+    }
+
+    // Squirt info
+    const squirtEl = document.getElementById("info-squirt");
+    const squirtDetailEl = document.getElementById("info-squirt-detail");
+    if (squirtEl && geom.squirtAngleDeg != null) {
+      squirtEl.textContent = Math.abs(geom.squirtAngleDeg) < 0.01 ? "0.0°" :
+        (geom.squirtAngleDeg > 0 ? "+" : "") + geom.squirtAngleDeg.toFixed(1) + "°";
+      squirtDetailEl.textContent = state.shaftType === "ld" ? "Low Deflection" : "Standard";
+    }
+
     // Slider
     const slider = document.getElementById("fraction-slider");
     slider.value = Math.round(geom.fraction * 100);
 
-    // Preset buttons
-    document.querySelectorAll(".preset-btn").forEach((btn) => {
+    // Fraction preset buttons
+    document.querySelectorAll(".preset-btn[data-fraction]").forEach((btn) => {
       const f = parseFloat(btn.dataset.fraction);
       btn.classList.toggle("active", Math.abs(f - geom.fraction) < 0.03);
     });
@@ -1751,12 +1931,78 @@
     "cutAngle",
     "contactPoint",
     "diamondGrid",
+    "throwEffect",
+    "swervePath",
+    "predictedStop",
+    "bouncePath",
   ].forEach((key) => {
-    document
-      .getElementById("toggle-" + key)
-      .addEventListener("change", function () {
+    const el = document.getElementById("toggle-" + key);
+    if (el) {
+      el.addEventListener("change", function () {
         state.show[key] = this.checked;
       });
+    }
+  });
+
+  // ---- English (sidespin) controls ----
+  function setEnglish(val) {
+    state.tipSide = clamp(val, -1, 1);
+    document.getElementById("english-slider").value = Math.round(val * 100);
+    document.querySelectorAll(".eng-btn").forEach((b) => {
+      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.eng) - val) < 0.01);
+    });
+  }
+
+  document.querySelectorAll(".eng-btn").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      setEnglish(parseFloat(this.dataset.eng));
+    });
+  });
+
+  document.getElementById("english-slider").addEventListener("input", function () {
+    const val = parseInt(this.value) / 100;
+    state.tipSide = clamp(val, -1, 1);
+    document.querySelectorAll(".eng-btn").forEach((b) => {
+      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.eng) - val) < 0.01);
+    });
+  });
+
+  // ---- Shot speed controls ----
+  function setShotSpeed(val) {
+    state.shotSpeed = clamp(val, 0, 1);
+    document.getElementById("speed-slider").value = Math.round(val * 100);
+    document.querySelectorAll(".speed-btn").forEach((b) => {
+      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.speed) - val) < 0.02);
+    });
+  }
+
+  document.querySelectorAll(".speed-btn").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      setShotSpeed(parseFloat(this.dataset.speed));
+    });
+  });
+
+  document.getElementById("speed-slider").addEventListener("input", function () {
+    const val = parseInt(this.value) / 100;
+    state.shotSpeed = clamp(val, 0, 1);
+    document.querySelectorAll(".speed-btn").forEach((b) => {
+      b.classList.toggle("active", Math.abs(parseFloat(b.dataset.speed) - val) < 0.02);
+    });
+  });
+
+  // ---- Cue elevation slider ----
+  document.getElementById("elevation-slider").addEventListener("input", function () {
+    state.cueElevation = parseInt(this.value);
+  });
+
+  // ---- Shaft type buttons ----
+  document.querySelectorAll(".shaft-btn").forEach((btn) => {
+    btn.addEventListener("click", function () {
+      state.shaftType = this.dataset.shaft;
+      document.querySelectorAll(".shaft-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.shaft === state.shaftType);
+      });
+    });
   });
 
   // ---- Window resize ----

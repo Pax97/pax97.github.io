@@ -19,8 +19,8 @@
   const TH = 50; // table playing surface height
   // Aramith Tournament Black ball: 57.2 mm = 2.25" diameter → 1.125" radius
   const BR = 1.125; // ball radius
-  // Rasson OX-style rail width: ~7" from cushion nose to outer edge
-  const RAIL = 7;
+  // Rail width (visual): slimmer for cleaner proportions
+  const RAIL = 4;
   // WPA pocket mouth dimensions (from cushion nose tip to tip)
   const PR_CORNER = 2.25; // corner pocket radius ≈ 4.5"/2
   const PR_SIDE = 2.5; // side pocket radius   ≈ 5.0"/2
@@ -73,7 +73,7 @@
     squirtLine: "#e879f9", // squirt-adjusted aim (purple/pink)
     swervePath: "#a855f7", // swerve curve (purple)
     predictedStop: "#22d3ee", // predicted stop position (cyan)
-    bouncePath: "rgba(255,77,166,0.5)", // multi-bounce path
+    bouncePath: "rgba(255, 255, 255, 0.97)", // multi-bounce path
     // Aramith Tournament Black balls
     cueBall: "#fffff5", // ivory white
     cueShadow: "#c8c8b8",
@@ -639,8 +639,10 @@
 
         // Reference path (dashed, green): line-of-centers without throw (misses pocket)
         const noThrowRailPt = rayToRail(
-          state.objectBall.x, state.objectBall.y,
-          g.dirLineOfCenters.x, g.dirLineOfCenters.y
+          state.objectBall.x,
+          state.objectBall.y,
+          g.dirLineOfCenters.x,
+          g.dirLineOfCenters.y,
         );
         const noThrowEndP = t2c(noThrowRailPt.x, noThrowRailPt.y);
         ctx.save();

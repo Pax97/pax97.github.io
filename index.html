@@ -18,12 +18,18 @@
     <div class="app">
       <!-- Header -->
       <header class="app-header">
-        <h1>
-          Fractional Aiming <span class="subtitle">• Ngắm theo tỷ lệ</span>
-        </h1>
-        <p class="tagline">
-          Trực quan hoá phương pháp ngắm phổ biến trong billiard
-        </p>
+        <div class="header-titles">
+          <h1>
+            Fractional Aiming <span class="subtitle">• Ngắm theo tỷ lệ</span>
+          </h1>
+          <p class="tagline">
+            Trực quan hoá phương pháp ngắm phổ biến trong billiard
+          </p>
+        </div>
+        <nav class="app-nav">
+          <a href="index.html" class="nav-link active">🎯 Visualizer</a>
+          <a href="training.html" class="nav-link">📚 Kiến thức</a>
+        </nav>
       </header>
 
       <!-- Main Content -->
@@ -201,23 +207,43 @@
               <div class="config-section">
                 <div class="section-label">English (Sidespin)</div>
                 <div class="preset-buttons" id="english-buttons">
-                  <button class="preset-btn eng-btn" data-eng="-1" id="eng-left">
+                  <button
+                    class="preset-btn eng-btn"
+                    data-eng="-1"
+                    id="eng-left"
+                  >
                     <span class="preset-name">◀ Trái</span>
                     <span class="preset-angle">Full</span>
                   </button>
-                  <button class="preset-btn eng-btn" data-eng="-0.5" id="eng-halfleft">
+                  <button
+                    class="preset-btn eng-btn"
+                    data-eng="-0.5"
+                    id="eng-halfleft"
+                  >
                     <span class="preset-name">◁ Nửa</span>
                     <span class="preset-angle">Half</span>
                   </button>
-                  <button class="preset-btn eng-btn active" data-eng="0" id="eng-center">
+                  <button
+                    class="preset-btn eng-btn active"
+                    data-eng="0"
+                    id="eng-center"
+                  >
                     <span class="preset-name">Giữa</span>
                     <span class="preset-angle">None</span>
                   </button>
-                  <button class="preset-btn eng-btn" data-eng="0.5" id="eng-halfright">
+                  <button
+                    class="preset-btn eng-btn"
+                    data-eng="0.5"
+                    id="eng-halfright"
+                  >
                     <span class="preset-name">Nửa ▷</span>
                     <span class="preset-angle">Half</span>
                   </button>
-                  <button class="preset-btn eng-btn" data-eng="1" id="eng-right">
+                  <button
+                    class="preset-btn eng-btn"
+                    data-eng="1"
+                    id="eng-right"
+                  >
                     <span class="preset-name">Phải ▶</span>
                     <span class="preset-angle">Full</span>
                   </button>
@@ -240,15 +266,27 @@
               <div class="config-section">
                 <div class="section-label">Tốc độ đánh (Shot Speed)</div>
                 <div class="preset-buttons" id="speed-buttons">
-                  <button class="preset-btn speed-btn" data-speed="0.15" id="speed-soft">
+                  <button
+                    class="preset-btn speed-btn"
+                    data-speed="0.15"
+                    id="speed-soft"
+                  >
                     <span class="preset-name">Nhẹ</span>
                     <span class="preset-angle">Soft</span>
                   </button>
-                  <button class="preset-btn speed-btn active" data-speed="0.5" id="speed-med">
+                  <button
+                    class="preset-btn speed-btn active"
+                    data-speed="0.5"
+                    id="speed-med"
+                  >
                     <span class="preset-name">Vừa</span>
                     <span class="preset-angle">Medium</span>
                   </button>
-                  <button class="preset-btn speed-btn" data-speed="0.85" id="speed-hard">
+                  <button
+                    class="preset-btn speed-btn"
+                    data-speed="0.85"
+                    id="speed-hard"
+                  >
                     <span class="preset-name">Mạnh</span>
                     <span class="preset-angle">Hard</span>
                   </button>
@@ -288,11 +326,19 @@
               <div class="config-section">
                 <div class="section-label">Loại cơ (Shaft Type)</div>
                 <div class="preset-buttons" id="shaft-buttons">
-                  <button class="preset-btn shaft-btn active" data-shaft="ld" id="shaft-ld">
+                  <button
+                    class="preset-btn shaft-btn active"
+                    data-shaft="ld"
+                    id="shaft-ld"
+                  >
                     <span class="preset-name">Low Defl.</span>
                     <span class="preset-angle">Ít lệch</span>
                   </button>
-                  <button class="preset-btn shaft-btn" data-shaft="std" id="shaft-std">
+                  <button
+                    class="preset-btn shaft-btn"
+                    data-shaft="std"
+                    id="shaft-std"
+                  >
                     <span class="preset-name">Standard</span>
                     <span class="preset-angle">Lệch nhiều</span>
                   </button>
@@ -433,7 +479,11 @@
                       Vị trí dừng (Predicted Stop)
                     </span>
                     <span class="toggle-switch">
-                      <input type="checkbox" id="toggle-predictedStop" checked />
+                      <input
+                        type="checkbox"
+                        id="toggle-predictedStop"
+                        checked
+                      />
                       <span class="toggle-track"></span>
                     </span>
                   </label>
